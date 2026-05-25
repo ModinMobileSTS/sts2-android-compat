@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "pack_id": "sts2-android-compat-v0.106.1-beta",
+  "display_name": "STS2 Android Compatibility beta for v0.106.1",
+  "compat_version": "0.2.0-beta.1061",
+  "channel": "beta",
+  "target_game": {
+    "version": "v0.106.1",
+    "source_dir": "../s2_original/s201061",
+    "sts2_dll_sha256": "f5a61e592926da3fa4ec7cdf1d584cffe9b6d8d3ef40f772b5f8a5f3b1415c55",
+    "match": "exact-preferred"
+  },
+  "runtime": {
+    "entry_assembly": "STS2Mobile.dll",
+    "entry_type": "STS2Mobile.ModEntry",
+    "entry_method": "Apply"
+  },
+  "resources": {
+    "overlay_pck": "port_compat.pck"
+  },
+  "notes": [
+    "Built from the extracted Android compat patcher branch compat/v0.106.1-beta.",
+    "LAN message IDs were updated for the v0.106.1 INetMessageSubtypes order."
+  ]
+}

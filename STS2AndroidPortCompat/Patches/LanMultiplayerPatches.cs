@@ -41,62 +41,64 @@ public static class LanMultiplayerPatches
     public const ushort DefaultPort = 33771;
     private const int DefaultMaxPlayers = 4;
     private const int SteamMaxPlayers = 250;
-    private const int MessageTypeCount = 49;
+    private const int MessageTypeCount = 51;
 
     private static readonly Dictionary<PlatformType, Dictionary<ulong, string>> PlayerNameOverrides = new();
     private static readonly Dictionary<Type, int> StableMessageTypeIds = new();
     private static readonly Dictionary<int, Type> StableMessageIdTypes = new();
-    private static readonly Type[] StableMessageTypeOrder =
+    private static readonly string[] StableMessageTypeOrder =
     {
-        typeof(ActionEnqueuedMessage),
-        typeof(CardRemovedMessage),
-        typeof(ChecksumDataMessage),
-        typeof(StateDivergenceMessage),
-        typeof(ClearMapDrawingsMessage),
-        typeof(EndTurnPingMessage),
-        typeof(MapDrawingMessage),
-        typeof(MapDrawingModeChangedMessage),
-        typeof(MapPingMessage),
-        typeof(ReactionMessage),
-        typeof(RestSiteOptionHoveredMessage),
-        typeof(HookActionEnqueuedMessage),
-        typeof(MerchantCardRemovalMessage),
-        typeof(PaelsWingSacrificeMessage),
-        typeof(PlayerChoiceMessage),
-        typeof(RequestEnqueueActionMessage),
-        typeof(RequestEnqueueHookActionMessage),
-        typeof(RequestResumeActionAfterPlayerChoiceMessage),
-        typeof(ResumeActionAfterPlayerChoiceMessage),
-        typeof(RunAbandonedMessage),
-        typeof(GoldLostMessage),
-        typeof(OptionIndexChosenMessage),
-        typeof(PeerInputMessage),
-        typeof(RewardObtainedMessage),
-        typeof(SharedEventOptionChosenMessage),
-        typeof(VotedForSharedEventOptionMessage),
-        typeof(SyncPlayerDataMessage),
-        typeof(SyncRngMessage),
-        typeof(TreasureChestOpenedMessage),
-        typeof(HeartbeatRequestMessage),
-        typeof(HeartbeatResponseMessage),
-        typeof(ClientLoadJoinRequestMessage),
-        typeof(ClientLoadJoinResponseMessage),
-        typeof(ClientLobbyJoinRequestMessage),
-        typeof(ClientLobbyJoinResponseMessage),
-        typeof(ClientRejoinRequestMessage),
-        typeof(ClientRejoinResponseMessage),
-        typeof(InitialGameInfoMessage),
-        typeof(LobbyAscensionChangedMessage),
-        typeof(LobbyBeginLoadedRunMessage),
-        typeof(LobbyBeginRunMessage),
-        typeof(LobbyModifiersChangedMessage),
-        typeof(LobbyPlayerChangedCharacterMessage),
-        typeof(LobbyPlayerSetReadyMessage),
-        typeof(LobbySeedChangedMessage),
-        typeof(PlayerJoinedMessage),
-        typeof(PlayerLeftMessage),
-        typeof(PlayerReconnectedMessage),
-        typeof(PlayerRejoinedMessage),
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.ActionEnqueuedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.CardRemovedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Checksums.ChecksumDataMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Checksums.StateDivergenceMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.CrystalSphereRewardsMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.ClearMapDrawingsMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.EndTurnPingMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.MapDrawingMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.MapDrawingModeChangedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.MapPingMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.ReactionMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.RestSiteOptionHoveredMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.HookActionEnqueuedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.MerchantCardRemovalMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.PlayerChoiceMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RequestEnqueueActionMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RequestEnqueueHookActionMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RequestResumeActionAfterPlayerChoiceMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.ResumeActionAfterPlayerChoiceMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RunAbandonedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.GoldLostMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.OptionIndexChosenMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.PeerInputMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RewardObtainedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RewardSelectedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RewardSetSkippedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.SharedEventOptionChosenMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.VotedForSharedEventOptionMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.SyncPlayerDataMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.SyncRngMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.TreasureChestOpenedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.HeartbeatRequestMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.HeartbeatResponseMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLoadJoinRequestMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLoadJoinResponseMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLobbyJoinRequestMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLobbyJoinResponseMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientRejoinRequestMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientRejoinResponseMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.InitialGameInfoMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyAscensionChangedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyBeginLoadedRunMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyBeginRunMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyModifiersChangedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyPlayerChangedCharacterMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyPlayerSetReadyMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbySeedChangedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerJoinedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerLeftMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerReconnectedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerRejoinedMessage",
     };
 
     public static void Apply(Harmony harmony)
@@ -306,9 +308,16 @@ public static class LanMultiplayerPatches
         if (StableMessageTypeIds.Count > 0)
             return;
 
+        var assembly = typeof(ActionEnqueuedMessage).Assembly;
         for (var index = 0; index < StableMessageTypeOrder.Length; index++)
         {
-            var type = StableMessageTypeOrder[index];
+            var typeName = StableMessageTypeOrder[index];
+            var type = assembly.GetType(typeName);
+            if (type == null)
+            {
+                PatchHelper.Log($"LAN message protocol type missing for this game build: {typeName}");
+                continue;
+            }
             StableMessageTypeIds[type] = index;
             StableMessageIdTypes[index] = type;
         }

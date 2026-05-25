@@ -12,11 +12,20 @@
     <StandaloneOriginalReferenceDir>../../s2_original/s21032/.godot/mono/temp/bin/Debug</StandaloneOriginalReferenceDir>
     <StandaloneOriginal1061ReferenceDir>../../s2_original/s201061/.godot/mono/temp/bin/Debug</StandaloneOriginal1061ReferenceDir>
 
-    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(OriginalReferenceDir)/sts2.dll')">$(OriginalReferenceDir)</CompatReferenceDir>
+    <!-- Paths used by the local agent workspace when this standalone repo lives under /tmp. -->
+    <AgentWorkspaceRoot>/mnt/datas/agent_workspace</AgentWorkspaceRoot>
+    <AgentRuntimeReferenceDir>$(AgentWorkspaceRoot)/s2/.cache/StS2-Launcher_Mod_Manager/upstream/godot-export/.godot/mono/publish/arm64</AgentRuntimeReferenceDir>
+    <AgentOriginalReferenceDir>$(AgentWorkspaceRoot)/s2_original/s21032/.godot/mono/temp/bin/Debug</AgentOriginalReferenceDir>
+    <AgentOriginal1061ReferenceDir>$(AgentWorkspaceRoot)/s2_original/s201061/.godot/mono/temp/bin/Debug</AgentOriginal1061ReferenceDir>
+
     <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(StandaloneOriginalReferenceDir)/sts2.dll')">$(StandaloneOriginalReferenceDir)</CompatReferenceDir>
-    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original-v0.106.1' And Exists('$(Original1061ReferenceDir)/sts2.dll')">$(Original1061ReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(AgentOriginalReferenceDir)/sts2.dll')">$(AgentOriginalReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(OriginalReferenceDir)/sts2.dll')">$(OriginalReferenceDir)</CompatReferenceDir>
     <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original-v0.106.1' And Exists('$(StandaloneOriginal1061ReferenceDir)/sts2.dll')">$(StandaloneOriginal1061ReferenceDir)</CompatReferenceDir>
-    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(RuntimeReferenceDir)/sts2.dll')">$(RuntimeReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original-v0.106.1' And Exists('$(AgentOriginal1061ReferenceDir)/sts2.dll')">$(AgentOriginal1061ReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original-v0.106.1' And Exists('$(Original1061ReferenceDir)/sts2.dll')">$(Original1061ReferenceDir)</CompatReferenceDir>
     <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(StandaloneRuntimeReferenceDir)/sts2.dll')">$(StandaloneRuntimeReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(AgentRuntimeReferenceDir)/sts2.dll')">$(AgentRuntimeReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(RuntimeReferenceDir)/sts2.dll')">$(RuntimeReferenceDir)</CompatReferenceDir>
   </PropertyGroup>
 </Project>

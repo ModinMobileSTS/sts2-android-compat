@@ -3,6 +3,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 DOTNET_BIN="${DOTNET_BIN:-$ROOT/../s2/.local/dotnet/dotnet}"
+if [[ ! -x "$DOTNET_BIN" && -x "/mnt/datas/agent_workspace/s2/.local/dotnet/dotnet" ]]; then
+  DOTNET_BIN="/mnt/datas/agent_workspace/s2/.local/dotnet/dotnet"
+fi
 REFERENCE_FLAVOR="${REFERENCE_FLAVOR:-original-v0.106.1}"
 MANIFEST="${COMPAT_MANIFEST:-$ROOT/compat_manifest.v0.106.1-beta.json}"
 PROJECT="$ROOT/STS2AndroidPortCompat/STS2Mobile.csproj"

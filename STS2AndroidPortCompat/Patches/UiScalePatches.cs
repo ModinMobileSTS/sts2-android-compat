@@ -15,7 +15,7 @@ public static class UiScalePatches
     public static event Action UiScaleChanged;
     private static bool _uiScaleLoaded = false;
 
-    public static void Apply(Harmony harmony)
+    public static void Apply(Harmony harmony, bool patchMainMenuWindowChange = true)
     {
         var sts2Asm = typeof(MegaCrit.Sts2.Core.Nodes.NGame).Assembly;
 
@@ -94,7 +94,7 @@ public static class UiScalePatches
         }
 
         var mainMenuType = sts2Asm.GetType("MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMainMenu");
-        if (mainMenuType != null)
+        if (patchMainMenuWindowChange && mainMenuType != null)
         {
             PatchHelper.Patch(
                 harmony,
@@ -105,6 +105,10 @@ public static class UiScalePatches
                     nameof(MainMenuWindowChangePrefix)
                 )
             );
+        }
+        else if (!patchMainMenuWindowChange)
+        {
+            PatchHelper.Log("UiScale NMainMenu.OnWindowChange prefix disabled for startup stability.");
         }
     }
 

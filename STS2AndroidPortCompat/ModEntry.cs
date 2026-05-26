@@ -67,10 +67,10 @@ public static class ModEntry
             AndroidSettingsPatches.Apply(_harmony);
             DisplaySettingsPatches.Apply(_harmony, patchMainMenuReady: false);
             AndroidFontCoveragePatches.Apply(_harmony);
-            UiScalePatches.Apply(_harmony);
+            UiScalePatches.Apply(_harmony, patchMainMenuWindowChange: false);
 
             // Reference mobile layout/input fixes.
-            MobileLayoutPatches.Apply(_harmony);
+            PatchHelper.Log("Mobile main-menu layout patch disabled for v0.103.2 startup stability.");
             EventLayoutPatches.Apply(_harmony);
             MerchantLayoutPatches.Apply(_harmony);
             TouchInputPatches.Apply(_harmony);

@@ -84,6 +84,7 @@ public static class ModEntry
             ExternalSettingsPatches.Apply(_harmony);
             AndroidInGameSettingsPatches.Apply(_harmony);
             ShaderCompatibilityPatches.Apply(_harmony);
+            AndroidResourceWarmupPatches.Apply(_harmony);
             AndroidInputCompatPatches.Apply(_harmony);
             MobileSelectionConfirmationPatches.Apply(_harmony);
             MobileTapPreviewPatches.Apply(_harmony);

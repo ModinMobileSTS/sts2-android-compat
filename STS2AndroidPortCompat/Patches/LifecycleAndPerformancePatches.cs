@@ -84,15 +84,6 @@ public static class LifecycleAndPerformancePatches
             await TryPlayLogoAsync(game, logoAnimation);
         }
 
-        if (ShaderWarmupScreen.NeedsWarmup())
-        {
-            var shaderWarmup = new ShaderWarmupScreen();
-            game.AddChild(shaderWarmup);
-            shaderWarmup.Initialize();
-            await shaderWarmup.WaitForCompletion();
-            shaderWarmup.QueueFree();
-        }
-
         AndroidStartupLoadingScreen startupLoadingScreen = await ShowStartupWarmupScreenAndLoadAssetsAsync(game, keepVisibleAfterWarmup: !PreloadManager.Enabled);
 
         if (startupLoadingScreen != null)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -7,28 +8,32 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using STS2Mobile.Android;
 
 namespace STS2Mobile.Patches;
 
 public static class LifecycleAndPerformancePatches
 {
+    private static bool _safePreloadStarted;
+
     public static void Apply(Harmony harmony)
     {
-        PatchHelper.Patch(harmony, typeof(OneTimeInitialization), "ExecuteVeryEarly", postfix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(ExecuteVeryEarlyPostfix)));
-        PatchHelper.Patch(harmony, typeof(NGame), "LaunchMainMenu", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LaunchMainMenuPrefix)));
-        PatchHelper.Patch(harmony, typeof(NGame), "LoadDeferredStartupAssetsAsync", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadDeferredStartupAssetsPrefix)));
+        // v0.106.1 beta safety: do not patch OneTimeInitialization/NGame startup
+        // methods. Those early Harmony lookups/replacements can initialize
+        // GodotSharp ResourceFormatLoader MethodName statics too early and abort
+        // Godot 4.5 with StringName refcount errors (_recognize_path/_reset_state).
+        // Start a visible, serialized preload later from NMainMenu._Ready instead.
+        PatchHelper.Log("Android startup Harmony overrides disabled; safe deferred preload will run after scene startup.");
+        PatchHelper.Patch(harmony, typeof(NMainMenu), "_Ready", postfix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(MainMenuReadyPostfix)));
 
         var muteHandlerType = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.NMuteInBackgroundHandler");
         if (muteHandlerType != null)
         {
             // Do not patch inherited Godot lifecycle wrappers (_Ready/_Process) or _Notification
-            // in the imported PC assembly.  On Android/Godot 4.5 those Harmony lookups force
+            // in the imported PC assembly. On Android/Godot 4.5 those Harmony lookups can force
             // GodotSharp MethodName static constructors for Resource/ResourceFormat* to run while
-            // the native engine is still initializing, which aborts with StringName refcount errors
-            // such as "Unreferenced static string to 0: _recognize_path" / "_reset_state".
-            // The vanilla PC notification handler is good enough for startup; keep the early
-            // preload bridge below and defer fuller background-audio parity until runtime is stable.
+            // the native engine is still initializing.
             PatchHelper.Log("Background audio lifecycle patch disabled on imported PC assembly for Android startup safety.");
         }
     }
@@ -46,6 +51,88 @@ public static class LifecycleAndPerformancePatches
         }
     }
 
+    public static void MainMenuReadyPostfix(NMainMenu __instance)
+    {
+        StartSafeDeferredPreload("MainMenuReady", __instance);
+    }
+
+    public static void StartSafeDeferredPreload(string reason, Node owner = null)
+    {
+        if (_safePreloadStarted)
+            return;
+        if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
+            return;
+        PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", PreloadManager.Enabled);
+        if (!PreloadManager.Enabled)
+        {
+            PatchHelper.Log($"Android safe preload not started ({reason}): preload_enabled=false.");
+            return;
+        }
+        _safePreloadStarted = true;
+        PatchHelper.Log($"Android safe preload scheduled ({reason}).");
+        Callable.From(async () => await RunSafeDeferredPreloadAsync(reason, owner)).CallDeferred();
+    }
+
+    private static async Task RunSafeDeferredPreloadAsync(string reason, Node owner)
+    {
+        AndroidStartupLoadingScreen loadingScreen = null;
+        try
+        {
+            await Task.Yield();
+            await WaitForFramesAsync(2);
+            loadingScreen = await ShowDeferredPreloadScreenAsync(owner);
+            await RunSerializedAndroidPreloadAsync(loadingScreen);
+            if (loadingScreen != null)
+            {
+                loadingScreen.SetStatus("Startup optimization complete", "Ready", 1f);
+                await WaitForFramesAsync(2);
+            }
+            LogResourceStats($"android safe preload complete ({reason})");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Android safe preload failed ({reason}): {exception}");
+            LogResourceStats($"android safe preload failed ({reason})");
+        }
+        finally
+        {
+            if (loadingScreen != null && GodotObject.IsInstanceValid(loadingScreen))
+                loadingScreen.QueueFree();
+        }
+    }
+
+    private static async Task<AndroidStartupLoadingScreen> ShowDeferredPreloadScreenAsync(Node owner)
+    {
+        try
+        {
+            Node parent = owner ?? (Engine.GetMainLoop() as SceneTree)?.Root;
+            if (parent == null || !GodotObject.IsInstanceValid(parent))
+                return null;
+            var loadingScreen = new AndroidStartupLoadingScreen { Name = "AndroidDeferredPreloadScreen" };
+            parent.AddChild(loadingScreen);
+            loadingScreen.SetStatus("Optimizing startup...", "Preparing resource warmup", 0f);
+            await loadingScreen.PresentAsync();
+            return loadingScreen;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Android safe preload UI unavailable: {exception.Message}");
+            return null;
+        }
+    }
+
+    private static async Task WaitForFramesAsync(int frames)
+    {
+        var tree = Engine.GetMainLoop() as SceneTree;
+        if (tree == null)
+        {
+            await Task.Yield();
+            return;
+        }
+        for (int i = 0; i < frames; i++)
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+    }
+
     public static bool LaunchMainMenuPrefix(NGame __instance, bool skipLogo, ref Task __result)
     {
         if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
@@ -54,11 +141,11 @@ public static class LifecycleAndPerformancePatches
         return false;
     }
 
-    public static bool LoadDeferredStartupAssetsPrefix(ref Task __result)
+    public static bool LoadCommonAndMainMenuAssetsPrefix(ref Task __result)
     {
         if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
             return true;
-        __result = LoadDeferredStartupAssetsAndroidAsync();
+        __result = LoadCommonAndMainMenuAssetsAndroidAsync();
         return false;
     }
 
@@ -105,16 +192,94 @@ public static class LifecycleAndPerformancePatches
 
         PatchHelper.Log($"Android startup preload flow complete at {Time.GetTicksMsec():N0}ms.");
         LogResourceStats(PreloadManager.Enabled ? "main menu loaded (startup warmup complete)" : "main menu loaded (essential)");
-        _ = TaskHelper.RunSafely(LoadDeferredStartupAssetsAndroidAsync());
+        _ = TaskHelper.RunSafely(LoadCommonAndMainMenuAssetsAndroidAsync());
         TryCheckCommandLineJoin(game);
     }
 
-    private static async Task LoadDeferredStartupAssetsAndroidAsync()
+    private static async Task LoadCommonAndMainMenuAssetsAndroidAsync()
     {
-        OneTimeInitialization.ExecuteDeferred();
-        await Task.Yield();
-        PatchHelper.Log("Android deferred initialization complete; bulk common/main-menu preload remains disabled to match the source-port startup flow.");
-        LogResourceStats("main menu loaded (deferred init complete)");
+        if (!PreloadManager.Enabled)
+        {
+            await Task.Yield();
+            PatchHelper.Log("Android common/main-menu preload skipped because preload_enabled is off.");
+            return;
+        }
+
+        try
+        {
+            await RunSerializedAndroidPreloadAsync();
+            LogResourceStats("android common/main-menu preload complete");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Android common/main-menu preload failed; continuing without full cache: {exception}");
+            LogResourceStats("android common/main-menu preload failed");
+        }
+    }
+
+    private static Task RunSerializedAndroidPreloadAsync()
+    {
+        return RunSerializedAndroidPreloadAsync(null);
+    }
+
+    private static async Task RunSerializedAndroidPreloadAsync(AndroidStartupLoadingScreen loadingScreen)
+    {
+        PreloadManager.Cache.UnloadMissedCacheAssets();
+        var assetPaths = CollectCommonAndMainMenuAssetPaths();
+        PatchHelper.Log($"Android common/main-menu preload begin: {assetPaths.Count:N0} resources.");
+        loadingScreen?.SetStatus("Optimizing startup...", $"Preparing {assetPaths.Count:N0} resources", 0.05f);
+        int loaded = 0;
+        foreach (string path in assetPaths)
+        {
+            try
+            {
+                if (!PreloadManager.Cache.ContainsKey(path))
+                {
+                    Resource resource = ResourceLoader.Load<Resource>(path, null, ResourceLoader.CacheMode.Reuse);
+                    if (resource != null)
+                        PreloadManager.Cache.SetAsset(path, resource);
+                    else
+                        PatchHelper.Log($"Android preload returned null: {path}");
+                }
+            }
+            catch (Exception exception)
+            {
+                PatchHelper.Log($"Android preload skipped {path}: {exception.Message}");
+            }
+            loaded++;
+            if ((loaded % 8) == 0)
+            {
+                float progress = assetPaths.Count == 0 ? 1f : 0.05f + (0.9f * loaded / assetPaths.Count);
+                loadingScreen?.SetStatus("Optimizing startup...", $"Preloading {loaded:N0}/{assetPaths.Count:N0}: {GetResourceDisplayName(path)}", progress);
+                await WaitForFramesAsync(1);
+            }
+        }
+        loadingScreen?.SetStatus("Optimizing startup...", $"Preloaded {loaded:N0}/{assetPaths.Count:N0} resources", 0.98f);
+        PatchHelper.Log($"Android common/main-menu preload complete: {loaded:N0}/{assetPaths.Count:N0} resources visited.");
+    }
+
+    private static IReadOnlyList<string> CollectCommonAndMainMenuAssetPaths()
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        AddAssetSet(result, "CommonAssets", () => AssetSets.CommonAssets);
+        AddAssetSet(result, "MainMenuSet", () => AssetSets.MainMenuSet);
+        return result.Where(path => !string.IsNullOrWhiteSpace(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
+    }
+
+    private static void AddAssetSet(HashSet<string> target, string label, Func<IEnumerable<string>> provider)
+    {
+        try
+        {
+            foreach (string path in provider())
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                    target.Add(path);
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Android preload asset collection failed for {label}: {exception.Message}");
+        }
     }
 
     private static async Task<AndroidStartupLoadingScreen> ShowStartupWarmupScreenAndLoadAssetsAsync(NGame game, bool keepVisibleAfterWarmup)
@@ -206,6 +371,16 @@ public static class LifecycleAndPerformancePatches
         {
             PatchHelper.Log($"Main menu hotspot preload skipped: {exception.Message}");
         }
+    }
+
+    private static string GetResourceDisplayName(string path)
+    {
+        int index = path.LastIndexOf('/');
+        string text = index >= 0 ? path.Substring(index + 1) : path;
+        int extensionIndex = text.LastIndexOf('.');
+        if (extensionIndex > 0)
+            text = text.Substring(0, extensionIndex);
+        return text.Replace('_', ' ');
     }
 
     private static void LogResourceStats(string context)

@@ -15,9 +15,11 @@ public static class LifecycleAndPerformancePatches
 {
     public static void Apply(Harmony harmony)
     {
-        PatchHelper.Patch(harmony, typeof(OneTimeInitialization), "ExecuteVeryEarly", postfix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(ExecuteVeryEarlyPostfix)));
-        PatchHelper.Patch(harmony, typeof(NGame), "LaunchMainMenu", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LaunchMainMenuPrefix)));
-        PatchHelper.Patch(harmony, typeof(NGame), "LoadDeferredStartupAssetsAsync", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadDeferredStartupAssetsPrefix)));
+        // Keep v0.103.2 on the original PC startup path. Patching NGame startup
+        // methods on Godot 4.5 can trigger StringName lifetime aborts on Android.
+        // The Android settings bridge still controls PreloadManager.Enabled from
+        // safe display/settings postfixes; do not replace LaunchMainMenu here.
+        PatchHelper.Log("Android v0.103.2 startup override disabled for Godot 4.5 stability.");
 
         var muteHandlerType = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.NMuteInBackgroundHandler");
         if (muteHandlerType != null)

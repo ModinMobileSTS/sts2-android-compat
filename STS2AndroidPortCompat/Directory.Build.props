@@ -1,9 +1,31 @@
 <Project>
   <PropertyGroup>
     <ReferenceFlavor Condition="'$(ReferenceFlavor)' == ''">runtime</ReferenceFlavor>
+
+    <!-- Paths used when this repo is checked out as s2_re/port-mod. -->
     <RuntimeReferenceDir>../../../s2/.cache/StS2-Launcher_Mod_Manager/upstream/godot-export/.godot/mono/publish/arm64</RuntimeReferenceDir>
     <OriginalReferenceDir>../refs/original</OriginalReferenceDir>
-    <CompatReferenceDir Condition="'$(ReferenceFlavor)' == 'original'">$(OriginalReferenceDir)</CompatReferenceDir>
-    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == ''">$(RuntimeReferenceDir)</CompatReferenceDir>
+
+    <!-- Paths used when this repo is checked out standalone next to ../s2 and ../s2_original. -->
+    <StandaloneRuntimeReferenceDir>../../s2/.cache/StS2-Launcher_Mod_Manager/upstream/godot-export/.godot/mono/publish/arm64</StandaloneRuntimeReferenceDir>
+    <StandaloneOriginalReferenceDir>../../s2_original/s21032/.godot/mono/temp/bin/Debug</StandaloneOriginalReferenceDir>
+
+    <!-- Paths used when this branch is built from a temporary worktree under s2_re/.agent/. -->
+    <WorktreeRuntimeReferenceDir>../../../../s2/.cache/StS2-Launcher_Mod_Manager/upstream/godot-export/.godot/mono/publish/arm64</WorktreeRuntimeReferenceDir>
+    <WorktreeOriginalReferenceDir>../../../../s2_original/s21032/.godot/mono/temp/bin/Debug</WorktreeOriginalReferenceDir>
+
+    <!-- Paths used by the local agent workspace. -->
+    <AgentWorkspaceRoot>/mnt/datas/agent_workspace</AgentWorkspaceRoot>
+    <AgentRuntimeReferenceDir>$(AgentWorkspaceRoot)/s2/.cache/StS2-Launcher_Mod_Manager/upstream/godot-export/.godot/mono/publish/arm64</AgentRuntimeReferenceDir>
+    <AgentOriginalReferenceDir>$(AgentWorkspaceRoot)/s2_original/s21032/.godot/mono/temp/bin/Debug</AgentOriginalReferenceDir>
+
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(StandaloneOriginalReferenceDir)/sts2.dll')">$(StandaloneOriginalReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(WorktreeOriginalReferenceDir)/sts2.dll')">$(WorktreeOriginalReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(AgentOriginalReferenceDir)/sts2.dll')">$(AgentOriginalReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(OriginalReferenceDir)/sts2.dll')">$(OriginalReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(StandaloneRuntimeReferenceDir)/sts2.dll')">$(StandaloneRuntimeReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(WorktreeRuntimeReferenceDir)/sts2.dll')">$(WorktreeRuntimeReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(AgentRuntimeReferenceDir)/sts2.dll')">$(AgentRuntimeReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(RuntimeReferenceDir)/sts2.dll')">$(RuntimeReferenceDir)</CompatReferenceDir>
   </PropertyGroup>
 </Project>

@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "pack_id": "sts2-android-compat-v0.103.2",
+  "display_name": "STS2 Android Compatibility for v0.103.2",
+  "compat_version": "0.1.0-1032",
+  "channel": "stable",
+  "target_game": {
+    "version": "v0.103.2",
+    "source_dir": "../s2_original/s21032",
+    "sts2_dll_sha256": "",
+    "match": "exact-preferred"
+  },
+  "runtime": {
+    "entry_assembly": "STS2Mobile.dll",
+    "entry_type": "STS2Mobile.ModEntry",
+    "entry_method": "Apply"
+  },
+  "resources": {
+    "overlay_pck": "port_compat.pck"
+  },
+  "notes": [
+    "Built from the extracted Android compat patcher branch compat/v0.103.2."
+  ]
+}

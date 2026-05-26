@@ -1,44 +1,124 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection.Emit;
+using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Debug;
 using MegaCrit.Sts2.Core.Modding;
 using STS2Mobile.Android;
 
 namespace STS2Mobile.Patches;
 
-// Mirrors the reference launcher startup path: rewrite the game's own
-// `Path.Combine(directoryName, "mods")` during ModManager.Initialize so the
-// built-in recursive scanner / dependency sorter / per-mod enable checks do all
-// the loading work.  This is intentionally not a post-scan reflection shim.
+// Mirrors the reference launcher startup path while avoiding Harmony transpiler
+// emission on ModManager.Initialize. The old ldstr/Path.Combine transpiler worked
+// on older builds but can trip MonoMod/Cecil/Godot StringName lifetime bugs on
+// Godot 4.5 Android. A prefix replacement calls the game's own private scanner,
+// dependency sorter and loader through reflection instead.
 public static class ModLoaderPatches
 {
     public static void Apply(Harmony harmony)
     {
-        PatchHelper.Patch(harmony, typeof(ModManager), "Initialize", transpiler: PatchHelper.Method(typeof(ModLoaderPatches), nameof(InitializeTranspiler)));
+        PatchHelper.Patch(harmony, typeof(ModManager), "Initialize", prefix: PatchHelper.Method(typeof(ModLoaderPatches), nameof(InitializePrefix)));
         PatchHelper.Patch(harmony, typeof(ModManager), "ReadSteamMods", prefix: PatchHelper.Method(typeof(ModLoaderPatches), nameof(ReadSteamModsPrefix)));
-        PatchHelper.Log("Mod loader compatibility patches enabled: reference launcher local-mod scan + no Steam Workshop scan.");
+        PatchHelper.Log("Mod loader compatibility patches enabled: Android local-mod scan + no Steam Workshop scan.");
     }
 
-    public static IEnumerable<CodeInstruction> InitializeTranspiler(IEnumerable<CodeInstruction> instructions)
+    public static bool InitializePrefix(IModManagerFileIo fileIo, ModSettings settings, SemanticVersion gameVersion)
     {
-        var matcher = new CodeMatcher(instructions).MatchStartForward(new CodeMatch(OpCodes.Ldstr, "mods"));
-        if (matcher.IsValid)
+        try
         {
-            // Reference pattern is: ldloc directoryName, ldstr "mods", call Path.Combine.
-            // Drop all three instructions and push our resolved Android mods directory.
-            matcher.Advance(-1);
-            matcher.RemoveInstructions(3);
-            matcher.InsertAndAdvance(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ModLoaderPatches), nameof(GetAndroidModsDir))));
-            PatchHelper.Log($"[Mods] Redirected ModManager.Initialize to {AppPaths.ModsDir}");
+            RunAndroidModInitialization(fileIo, settings, gameVersion);
         }
-        else
+        catch (Exception exception)
         {
-            PatchHelper.Log("[Mods] Warning: could not locate \"mods\" ldstr in ModManager.Initialize; Android mods will be ignored.");
+            PatchHelper.Log($"[Mods] Android ModManager.Initialize replacement failed: {exception}");
         }
-        return matcher.InstructionEnumeration();
+        return false;
+    }
+
+    private static void RunAndroidModInitialization(IModManagerFileIo fileIo, ModSettings settings, SemanticVersion gameVersion)
+    {
+        SetField("_settings", settings);
+        SetField("_fileIo", fileIo);
+        SetField("_gameVersion", gameVersion);
+        AppDomain.CurrentDomain.AssemblyResolve += InvokeAssemblyResolve;
+
+        string path = GetAndroidModsDir();
+        if (fileIo.DirectoryExists(path))
+        {
+            InvokeStatic("ReadModsInDirRecursive", path, ModSource.ModsDirectory, null);
+        }
+
+        var mods = GetMods();
+        if (mods.Count == 0)
+        {
+            PatchHelper.Log("[Mods] No Android mods detected.");
+            return;
+        }
+
+        InvokeStatic("SortModList", settings?.ModList ?? new List<SettingsSaveMod>());
+        foreach (var mod in GetMods().ToArray())
+        {
+            InvokeStatic("TryLoadMod", mod);
+        }
+
+        if (ModManager.IsRunningModded())
+        {
+            PatchHelper.Log($"[Mods] Android mod initialization loaded {ModManager.GetLoadedMods().Count()} mods ({GetMods().Count} total).");
+        }
+        SetField("_initialized", true);
+
+        if (settings != null)
+        {
+            var list = new List<SettingsSaveMod>();
+            foreach (var mod in GetMods())
+            {
+                var settingsSaveMod = new SettingsSaveMod(mod);
+                bool isEnabled = settings.ModList.FirstOrDefault(m => m.Id == mod.manifest?.id)?.IsEnabled ?? true;
+                settingsSaveMod.IsEnabled = isEnabled;
+                list.Add(settingsSaveMod);
+            }
+            settings.ModList = list;
+        }
+    }
+
+    private static List<Mod> GetMods()
+    {
+        return (List<Mod>)GetField("_mods");
+    }
+
+    private static object GetField(string name)
+    {
+        return typeof(ModManager).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null);
+    }
+
+    private static void SetField(string name, object value)
+    {
+        var field = typeof(ModManager).GetField(name, BindingFlags.NonPublic | BindingFlags.Static);
+        field?.SetValue(null, value);
+    }
+
+    private static object InvokeStatic(string name, params object[] args)
+    {
+        var method = typeof(ModManager).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static);
+        if (method == null)
+            throw new MissingMethodException(typeof(ModManager).FullName, name);
+        return method.Invoke(null, args);
+    }
+
+    private static Assembly InvokeAssemblyResolve(object sender, ResolveEventArgs args)
+    {
+        try
+        {
+            return InvokeStatic("HandleAssemblyResolveFailure", sender, args) as Assembly;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"[Mods] Assembly resolve fallback failed for {args?.Name}: {exception.Message}");
+            return null;
+        }
     }
 
     public static string GetAndroidModsDir()

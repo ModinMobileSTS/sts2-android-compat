@@ -32,14 +32,17 @@ public static class DisplaySettingsPatches
     private static AspectRatioSetting? _lastAspect;
     private static bool? _hasSourcePortMegaTextScaling;
 
-    public static void Apply(Harmony harmony)
+    public static void Apply(Harmony harmony, bool patchMainMenuReady = true)
     {
         PatchHelper.Patch(harmony, typeof(NGame), "ApplyDisplaySettings", postfix: PatchHelper.Method(typeof(DisplaySettingsPatches), nameof(ApplyDisplaySettingsPostfix)));
         PatchHelper.Patch(harmony, typeof(NGame), "InitializeGraphicsPreferences", postfix: PatchHelper.Method(typeof(DisplaySettingsPatches), nameof(InitializeGraphicsPreferencesPostfix)));
         PatchHelper.Patch(harmony, typeof(NGame), "_Notification", postfix: PatchHelper.Method(typeof(DisplaySettingsPatches), nameof(NotificationPostfix)));
         PatchHelper.Patch(harmony, typeof(NGame), "_Ready", postfix: PatchHelper.Method(typeof(DisplaySettingsPatches), nameof(ReadyPostfix)));
         PatchHelper.Patch(harmony, typeof(NGlobalUi), "_Ready", postfix: PatchHelper.Method(typeof(DisplaySettingsPatches), nameof(ReadyPostfix)));
-        PatchHelper.Patch(harmony, typeof(NMainMenu), "_Ready", postfix: PatchHelper.Method(typeof(DisplaySettingsPatches), nameof(ReadyPostfix)));
+        if (patchMainMenuReady)
+            PatchHelper.Patch(harmony, typeof(NMainMenu), "_Ready", postfix: PatchHelper.Method(typeof(DisplaySettingsPatches), nameof(ReadyPostfix)));
+        else
+            PatchHelper.Log("Display NMainMenu._Ready postfix disabled for startup stability.");
     }
 
     public static void InitializeGraphicsPreferencesPostfix()

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.ControllerInput;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
@@ -163,11 +164,16 @@ public static class MobileSelectionConfirmationPatches
         var holder = state?.SelectedHolder;
         if (holder == null)
             return;
-        ClearSelection(screen, disableConfirm: true, unpin: true);
-        var completion = GetField(screen, "_completionSource") as TaskCompletionSource<Tuple<IEnumerable<NCardHolder>, bool>>;
-        if (completion == null || completion.Task.IsCompleted)
+        object result = BuildCardRewardCompletionResult(screen, holder);
+        if (result == null)
+        {
+            PatchHelper.Log("Mobile card-reward confirmation could not resolve selected holder result.");
             return;
-        completion.SetResult(new Tuple<IEnumerable<NCardHolder>, bool>(new[] { holder }, true));
+        }
+        ClearSelection(screen, disableConfirm: true, unpin: true);
+        if (TrySetTaskCompletionResult(screen, "_completionSource", result))
+            return;
+        PatchHelper.Log("Mobile card-reward confirmation could not complete _completionSource.");
     }
 
     private static void ConfirmChooseCardSelection(Node screen)
@@ -180,10 +186,9 @@ public static class MobileSelectionConfirmationPatches
         ClearSelection(screen, disableConfirm: true, unpin: true);
         SetField(screen, "_screenComplete", true);
         SetField(screen, "_cardSelected", true);
-        var completion = GetField(screen, "_completionSource") as TaskCompletionSource<IEnumerable<CardModel>>;
-        if (completion == null || completion.Task.IsCompleted)
+        if (TrySetTaskCompletionResult(screen, "_completionSource", new CardModel[] { card }))
             return;
-        completion.SetResult(new[] { card });
+        PatchHelper.Log("Mobile choose-card confirmation could not complete _completionSource.");
     }
 
     private static void ClearSelection(Node screen, bool disableConfirm = true, bool unpin = true)
@@ -229,6 +234,81 @@ public static class MobileSelectionConfirmationPatches
         var completion = GetField(target, fieldName);
         var task = completion?.GetType().GetProperty("Task", BindingFlags.Public | BindingFlags.Instance)?.GetValue(completion) as Task;
         return task != null && !task.IsCompleted;
+    }
+
+    private static object BuildCardRewardCompletionResult(Node screen, NCardHolder holder)
+    {
+        try
+        {
+            var completion = GetField(screen, "_completionSource");
+            var resultType = GetTaskCompletionResultType(completion);
+            if (resultType == typeof(int) || resultType == typeof(int?))
+                return GetCardRewardOptionIndex(screen, holder);
+            if (IsTupleOfHoldersAndBool(resultType))
+                return Activator.CreateInstance(resultType, new object[] { new[] { holder }, true });
+            PatchHelper.Log($"Mobile card-reward unknown completion result type: {resultType}");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Mobile card-reward result build failed: {exception.Message}");
+        }
+        return null;
+    }
+
+    private static int GetCardRewardOptionIndex(Node screen, NCardHolder holder)
+    {
+        var options = GetField(screen, "_options") as IReadOnlyList<CardCreationResult>;
+        if (options == null)
+            return -1;
+        for (int i = 0; i < options.Count; i++)
+        {
+            if (ReferenceEquals(options[i]?.Card, holder.CardModel))
+                return i;
+        }
+        return -1;
+    }
+
+    private static Type GetTaskCompletionResultType(object completion)
+    {
+        var type = completion?.GetType();
+        while (type != null)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(TaskCompletionSource<>))
+                return type.GetGenericArguments()[0];
+            type = type.BaseType;
+        }
+        return null;
+    }
+
+    private static bool IsTupleOfHoldersAndBool(Type resultType)
+    {
+        if (resultType == null || !resultType.IsGenericType || resultType.GetGenericTypeDefinition() != typeof(Tuple<,>))
+            return false;
+        var args = resultType.GetGenericArguments();
+        return typeof(IEnumerable<NCardHolder>).IsAssignableFrom(args[0]) && args[1] == typeof(bool);
+    }
+
+    private static bool TrySetTaskCompletionResult(object target, string fieldName, object result)
+    {
+        try
+        {
+            var completion = GetField(target, fieldName);
+            if (completion == null)
+                return false;
+            var task = completion.GetType().GetProperty("Task", BindingFlags.Public | BindingFlags.Instance)?.GetValue(completion) as Task;
+            if (task == null || task.IsCompleted)
+                return false;
+            var setResult = completion.GetType().GetMethod("SetResult", BindingFlags.Public | BindingFlags.Instance);
+            if (setResult == null)
+                return false;
+            setResult.Invoke(completion, new[] { result });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Mobile selection completion failed: {exception.Message}");
+            return false;
+        }
     }
 
     private static SelectionState GetState(Node screen)

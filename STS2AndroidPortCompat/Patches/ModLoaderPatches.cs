@@ -25,7 +25,7 @@ public static class ModLoaderPatches
         PatchHelper.Log("Mod loader compatibility patches enabled: Android local-mod scan + no Steam Workshop scan.");
     }
 
-    public static bool InitializePrefix(IModManagerFileIo fileIo, ModSettings settings, SemanticVersion gameVersion)
+    public static bool InitializePrefix(IModManagerFileIo fileIo, ModSettings settings, object gameVersion = null)
     {
         try
         {
@@ -38,7 +38,7 @@ public static class ModLoaderPatches
         return false;
     }
 
-    private static void RunAndroidModInitialization(IModManagerFileIo fileIo, ModSettings settings, SemanticVersion gameVersion)
+    private static void RunAndroidModInitialization(IModManagerFileIo fileIo, ModSettings settings, object gameVersion)
     {
         SetField("_settings", settings);
         SetField("_fileIo", fileIo);

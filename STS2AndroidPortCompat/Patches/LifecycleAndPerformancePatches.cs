@@ -16,8 +16,15 @@ public static class LifecycleAndPerformancePatches
     public static void Apply(Harmony harmony)
     {
         PatchHelper.Patch(harmony, typeof(OneTimeInitialization), "ExecuteVeryEarly", postfix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(ExecuteVeryEarlyPostfix)));
-        PatchHelper.Patch(harmony, typeof(NGame), "LaunchMainMenu", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LaunchMainMenuPrefix)));
-        PatchHelper.Patch(harmony, typeof(NGame), "LoadDeferredStartupAssetsAsync", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadDeferredStartupAssetsPrefix)));
+
+        // v0.106.1 beta safety: do not replace NGame.LaunchMainMenu or
+        // LoadDeferredStartupAssetsAsync yet. The custom Android preload flow
+        // can still trigger Godot 4.5 StringName refcount aborts at startup
+        // (for example _recognize_path / _reset_state) after the main menu
+        // begins loading. Let the original game startup path run for now; the
+        // settings bridge below still disables heavy preload through
+        // PreloadManager.Enabled when the launcher setting is off.
+        PatchHelper.Log("Android startup preload override disabled for v0.106.1 beta stability.");
 
         var muteHandlerType = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.NMuteInBackgroundHandler");
         if (muteHandlerType != null)

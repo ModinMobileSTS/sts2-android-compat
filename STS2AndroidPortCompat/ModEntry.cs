@@ -65,12 +65,12 @@ public static class ModEntry
             // plus this port's Java companion settings bridge.
             SettingsPatches.Apply(_harmony);
             AndroidSettingsPatches.Apply(_harmony);
-            DisplaySettingsPatches.Apply(_harmony, patchMainMenuReady: false);
+            DisplaySettingsPatches.Apply(_harmony);
             AndroidFontCoveragePatches.Apply(_harmony);
-            UiScalePatches.Apply(_harmony, patchMainMenuWindowChange: false);
+            UiScalePatches.Apply(_harmony);
 
             // Reference mobile layout/input fixes.
-            PatchHelper.Log("Mobile main-menu layout patch disabled for v0.103.2 startup stability.");
+            MobileLayoutPatches.Apply(_harmony);
             EventLayoutPatches.Apply(_harmony);
             MerchantLayoutPatches.Apply(_harmony);
             TouchInputPatches.Apply(_harmony);
@@ -92,9 +92,9 @@ public static class ModEntry
             QuickRestartPatches.Apply(_harmony);
             LifecycleAndPerformancePatches.Apply(_harmony);
 
-            // v0.103.2 on Godot 4.5 aborts if we patch NMainMenu._Ready during
-            // startup. Skip deferred LAN bootstrap for this legacy branch.
-            PatchHelper.Log("LAN multiplayer compatibility patches disabled for v0.103.2 startup stability.");
+            // Reference launcher applies LAN before mod-loader; keep the same
+            // relative order while deferring the heavy LAN patch set to menu time.
+            LanMultiplayerBootstrapPatches.Apply(_harmony);
             ModLoaderPatches.Apply(_harmony);
             SaveDiagnosticPatches.Apply(_harmony);
 

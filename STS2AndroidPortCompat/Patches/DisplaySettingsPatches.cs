@@ -281,6 +281,12 @@ public static class DisplaySettingsPatches
             ApplyFontSizeOverridesRecursive(child);
     }
 
+    internal static void ApplyFontSizeOverridesToAddedNode(Node node)
+    {
+        if (node is Control control)
+            ApplyFontSizeOverrides(control);
+    }
+
     private static void ApplyFontSizeOverrides(Control control)
     {
         if (ShouldSkipFontOverrideScaling(control))

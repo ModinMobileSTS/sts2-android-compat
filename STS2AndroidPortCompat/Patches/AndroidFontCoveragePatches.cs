@@ -6,53 +6,79 @@ using MegaCrit.Sts2.Core.Nodes;
 namespace STS2Mobile.Patches;
 
 /// <summary>
-/// Applies the Android font-size setting to UI created after the main menu is
-/// ready (submenus, modals, cards, hover tips, compendium screens, etc.).  This
-/// intentionally avoids patching Godot engine methods or MegaLabel private
-/// methods during startup, because those Harmony wrappers can trip GodotSharp
-/// StringName static-initialization bugs on Android.
+/// Applies the Android font-size setting to UI created after the initial display
+/// pass without patching Godot's hot AddChild path.
+///
+/// The previous implementation Harmony-patched Node.AddChild and recursively
+/// rescanned every added Control tree, then queued a second deferred rescan.
+/// Deck/compendium/combat screens create many card/UI nodes while opening,
+/// closing, playing and selecting cards; rapid toggles would therefore build up
+/// large recursive/deferred font work and could stall the game.  Match the source
+/// Android port instead: subscribe to SceneTree.NodeAdded once from NGame._Ready
+/// and scale only the node that Godot reports as newly added.  Full recursive
+/// passes still happen when the font setting is initially applied or changed via
+/// DisplaySettingsPatches.ApplyFontSizeSetting().
 /// </summary>
 public static class AndroidFontCoveragePatches
 {
+    private static SceneTree _subscribedTree;
+
     public static void Apply(Harmony harmony)
     {
-        // Patch only Godot's generic AddChild path.  Patching many concrete UI
-        // _Ready methods here forces their static constructors to run before
-        // localization is initialized (for example NTopBarDeckButton), which can
-        // poison the type and crash startup.  AddChild catches both scene-created
-        // and programmatically-created UI without touching those types early.
-        PatchHelper.Patch(harmony, typeof(Node), "AddChild", postfix: PatchHelper.Method(typeof(AndroidFontCoveragePatches), nameof(NodeAddChildPostfix)));
-        var addChildSafely = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions")?.GetMethod("AddChildSafely", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-        if (addChildSafely != null)
-            harmony.Patch(addChildSafely, postfix: new HarmonyMethod(PatchHelper.Method(typeof(AndroidFontCoveragePatches), nameof(AddChildSafelyPostfix))));
+        PatchHelper.Patch(harmony, typeof(NGame), "_Ready", postfix: PatchHelper.Method(typeof(AndroidFontCoveragePatches), nameof(GameReadyPostfix)));
     }
 
-    public static void NodeAddChildPostfix(Node node) => RegisterTreePostfix(node);
-
-    public static void AddChildSafelyPostfix(Node child) => RegisterTreePostfix(child);
-
-    public static void RegisterTreePostfix(Node __instance)
+    public static void GameReadyPostfix(NGame __instance)
     {
         try
         {
-            if (__instance is not Control control)
+            var tree = __instance?.GetTree();
+            if (tree == null)
                 return;
-            DisplaySettingsPatches.ApplyFontSizeOverridesRecursive(control);
-            Callable.From(() =>
+            if (ReferenceEquals(_subscribedTree, tree))
+                return;
+            if (_subscribedTree != null && GodotObject.IsInstanceValid(_subscribedTree))
             {
                 try
                 {
-                    if (GodotObject.IsInstanceValid(control))
-                        DisplaySettingsPatches.ApplyFontSizeOverridesRecursive(control);
+                    _subscribedTree.NodeAdded -= OnSceneTreeNodeAdded;
                 }
                 catch
                 {
                 }
-            }).CallDeferred();
+            }
+            _subscribedTree = tree;
+            _subscribedTree.NodeAdded += OnSceneTreeNodeAdded;
+            PatchHelper.Log("Android font coverage installed via SceneTree.NodeAdded.");
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"Android font coverage scan failed on {__instance?.GetType().Name}: {exception.Message}");
+            PatchHelper.Log($"Android font coverage subscription failed: {exception.Message}");
+        }
+    }
+
+    public static void RegisterTreePostfix(Node node)
+    {
+        try
+        {
+            if (node != null)
+                DisplaySettingsPatches.ApplyFontSizeOverridesRecursive(node);
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Android font coverage explicit scan failed on {node?.GetType().Name}: {exception.Message}");
+        }
+    }
+
+    private static void OnSceneTreeNodeAdded(Node node)
+    {
+        try
+        {
+            DisplaySettingsPatches.ApplyFontSizeOverridesToAddedNode(node);
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Android font coverage apply failed on {node?.GetType().Name}: {exception.Message}");
         }
     }
 }

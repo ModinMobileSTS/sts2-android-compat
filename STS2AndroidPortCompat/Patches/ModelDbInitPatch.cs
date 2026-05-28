@@ -2,8 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Assets;
+using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Multiplayer.Serialization;
 
 namespace STS2Mobile.Patches;
 
@@ -24,19 +29,19 @@ public static class ModelDbInitPatch
     {
         try
         {
-            var target = typeof(ModelDb).GetMethod(nameof(ModelDb.Init), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            var prefix = typeof(ModelDbInitPatch).GetMethod(nameof(InitPrefix), BindingFlags.Public | BindingFlags.Static);
+            var target = typeof(OneTimeInitialization).GetMethod("ExecuteEssential", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            var prefix = typeof(ModelDbInitPatch).GetMethod(nameof(ExecuteEssentialPrefix), BindingFlags.Public | BindingFlags.Static);
             if (target == null || prefix == null)
             {
-                PatchHelper.Log("FAILED ModelDb.Init: method not found");
+                PatchHelper.Log("FAILED OneTimeInitialization.ExecuteEssential: method not found");
                 return;
             }
             harmony.Patch(target, prefix: new HarmonyMethod(prefix) { priority = Priority.Last });
-            PatchHelper.Log("Patched ModelDb.Init (two-phase Android startup compatibility; Priority.Last).");
+            PatchHelper.Log("Patched OneTimeInitialization.ExecuteEssential (inline two-phase ModelDb init; avoids early ModelDb.Init replacement).");
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"FAILED ModelDb.Init: {exception}");
+            PatchHelper.Log($"FAILED OneTimeInitialization.ExecuteEssential: {exception}");
         }
     }
 
@@ -50,7 +55,44 @@ public static class ModelDbInitPatch
         return true;
     }
 
+    public static bool ExecuteEssentialPrefix()
+    {
+        var initializationType = typeof(OneTimeInitialization);
+        var stateField = initializationType.GetField("_state", BindingFlags.NonPublic | BindingFlags.Static);
+        var atlasField = initializationType.GetField("_atlasResourceLoader", BindingFlags.NonPublic | BindingFlags.Static);
+        if (stateField == null || atlasField == null)
+        {
+            PatchHelper.Log("ModelDbInitPatch: OneTimeInitialization private fields not found; falling back to original ExecuteEssential().");
+            return true;
+        }
+
+        var stateName = stateField.GetValue(null)?.ToString() ?? string.Empty;
+        if (!string.Equals(stateName, "VeryEarly", StringComparison.Ordinal))
+        {
+            PatchHelper.Log($"ModelDbInitPatch: ExecuteEssential called in state {stateName}; falling back to original method.");
+            return true;
+        }
+
+        PatchHelper.Log("Running patched OneTimeInitialization.ExecuteEssential with two-phase ModelDb init.");
+        stateField.SetValue(null, Enum.Parse(stateField.FieldType, "Essential"));
+        var atlasResourceLoader = new AtlasResourceLoader();
+        atlasField.SetValue(null, atlasResourceLoader);
+        ResourceLoader.AddResourceFormatLoader(atlasResourceLoader, true);
+        AtlasManager.LoadEssentialAtlases();
+        LocManager.Initialize();
+        RunTwoPhaseModelDbInit();
+        ModelIdSerializationCache.Init();
+        ModelDb.InitIds();
+        return false;
+    }
+
     public static bool InitPrefix()
+    {
+        RunTwoPhaseModelDbInit();
+        return false;
+    }
+
+    public static void RunTwoPhaseModelDbInit()
     {
         PatchHelper.Log("Running patched ModelDb.Init().");
 
@@ -63,8 +105,7 @@ public static class ModelDbInitPatch
 
         if (allSubtypesProperty == null || getIdMethod == null || contentById == null || setItemMethod == null)
         {
-            PatchHelper.Log("ModelDbInitPatch: failed to locate ModelDb reflection members; falling back to original Init().");
-            return true;
+            throw new InvalidOperationException("ModelDbInitPatch failed to locate ModelDb reflection members.");
         }
 
         var types = (Type[])allSubtypesProperty.GetValue(null) ?? Array.Empty<Type>();
@@ -150,7 +191,6 @@ public static class ModelDbInitPatch
             }
         }
 
-        return false;
     }
 
     private static Exception GetRootException(Exception exception)

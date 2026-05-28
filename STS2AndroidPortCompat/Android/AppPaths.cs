@@ -11,10 +11,32 @@ public static class AppPaths
     public static string DataDir => _dataDir ??= ResolveDataDir();
     public static string GameDir => Path.Combine(DataDir, "game");
     public static string ReleaseInfoPath => Path.Combine(GameDir, "release_info.json");
-    public static string AccountRoot => Path.Combine(DataDir, "default", "1");
+    public static string AccountRoot => ResolveAccountRoot();
     public static string SettingsPath => Path.Combine(AccountRoot, "settings.save");
     public static string PendingUnlockAllPath => Path.Combine(AccountRoot, "pending_unlock_all.flag");
     public static string ModsDir => Path.Combine(DataDir, "mods");
+
+    private static string ResolveAccountRoot()
+    {
+        var defaultRoot = Path.Combine(DataDir, "default");
+        try
+        {
+            if (Directory.Exists(defaultRoot))
+            {
+                var accountDirectories = Directory.GetDirectories(defaultRoot);
+                if (accountDirectories.Length > 0)
+                {
+                    Array.Sort(accountDirectories, StringComparer.OrdinalIgnoreCase);
+                    return accountDirectories[0];
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Failed to resolve account data directory; falling back to default/1: {exception.Message}");
+        }
+        return Path.Combine(defaultRoot, "1");
+    }
 
     private static string ResolveDataDir()
     {

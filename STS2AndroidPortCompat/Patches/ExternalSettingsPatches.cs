@@ -20,7 +20,10 @@ public static class ExternalSettingsPatches
 
     public static void Apply(Harmony harmony)
     {
-        PatchHelper.Patch(harmony, typeof(NGame), "GameStartup", postfix: PatchHelper.Method(typeof(ExternalSettingsPatches), nameof(GameStartupPostfix)));
+        // NGame.GameStartup is async; a normal Harmony postfix runs when the Task is
+        // created, before the startup body has loaded Progress.  Consume Android
+        // companion commands immediately after progress is initialized instead.
+        PatchHelper.Patch(harmony, typeof(SaveManager), "InitProgressData", postfix: PatchHelper.Method(typeof(ExternalSettingsPatches), nameof(InitProgressDataPostfix)));
         PatchHelper.Patch(harmony, typeof(NGame), "Quit", prefix: PatchHelper.Method(typeof(ExternalSettingsPatches), nameof(QuitPrefix)));
 
         var settingsScreenType = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.Screens.Settings.NSettingsScreen");
@@ -31,11 +34,8 @@ public static class ExternalSettingsPatches
         }
     }
 
-    public static void GameStartupPostfix()
+    public static void InitProgressDataPostfix()
     {
-        if (_didCheckPendingCommands)
-            return;
-        _didCheckPendingCommands = true;
         ApplyPendingUnlockAllIfRequested();
     }
 
@@ -157,10 +157,14 @@ public static class ExternalSettingsPatches
     {
         try
         {
+            if (_didCheckPendingCommands)
+                return;
+
             var flagPath = AppPaths.PendingUnlockAllPath;
             if (!File.Exists(flagPath))
                 return;
-            PatchHelper.Log("Applying pending unlock-all request from Android companion settings.");
+            _didCheckPendingCommands = true;
+            PatchHelper.Log($"Applying pending unlock-all request from Android companion settings: {flagPath}");
             ApplyUnlockAll();
             File.Delete(flagPath);
             SaveManager.Instance.DeleteCurrentRun();

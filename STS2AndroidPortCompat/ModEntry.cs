@@ -5,7 +5,6 @@ using Godot;
 using Godot.Bridge;
 using Godot.NativeInterop;
 using HarmonyLib;
-using STS2Mobile.Android;
 using STS2Mobile.Patches;
 
 namespace STS2Mobile;
@@ -114,18 +113,23 @@ public static class ModEntry
     {
         try
         {
-            var dataDir = AppPaths.DataDir;
-            if (string.IsNullOrWhiteSpace(dataDir))
-                dataDir = OS.GetDataDir();
-
-            var tempDir = Path.Combine(dataDir, "tmp");
-            Directory.CreateDirectory(tempDir);
-
             // Android does not guarantee a process-wide /tmp directory. MonoMod/Harmony's
             // shared-state bootstrap writes a temporary DMD assembly via Path.GetTempPath();
-            // if the runtime falls back to /tmp on devices/emulators where it is absent,
+            // if the runtime falls back to /tmp on devices where it is absent,
             // HarmonySharedState's type initializer is permanently poisoned and every patch
             // appears to fail even though STS2Mobile.dll was loaded successfully.
+            //
+            // This entry point runs very early in GodotSharp startup. Avoid Godot APIs here:
+            // on some vendor ROMs, calling Engine/OS before the script bridge has finished
+            // initializing can trip native StringName lifetime assertions and terminate the
+            // process. Derive a writable private directory from this managed assembly instead.
+            var tempDir = ResolveWritableTempDirectory();
+            if (string.IsNullOrWhiteSpace(tempDir))
+            {
+                PatchHelper.Log("Failed to configure Android temp directory; no writable candidate found. Harmony may fall back to /tmp.");
+                return;
+            }
+
             System.Environment.SetEnvironmentVariable("TMPDIR", tempDir);
             System.Environment.SetEnvironmentVariable("TMP", tempDir);
             System.Environment.SetEnvironmentVariable("TEMP", tempDir);
@@ -135,6 +139,91 @@ public static class ModEntry
         catch (Exception exception)
         {
             PatchHelper.Log($"Failed to configure Android temp directory; Harmony may fall back to /tmp: {exception}");
+        }
+    }
+
+    private static string ResolveWritableTempDirectory()
+    {
+        var assemblyDir = Path.GetDirectoryName(typeof(ModEntry).Assembly.Location);
+        var filesDir = TryResolveFilesDirFromPublishDir(assemblyDir);
+
+        string[] candidates =
+        {
+            string.IsNullOrWhiteSpace(filesDir) ? null : Path.Combine(filesDir, "tmp"),
+            string.IsNullOrWhiteSpace(assemblyDir) ? null : Path.Combine(assemblyDir, "tmp"),
+            TryBuildEnvironmentCandidate("HOME", "tmp"),
+            TryBuildEnvironmentCandidate("ANDROID_DATA", "local/tmp/sts2mobile"),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (TryPrepareTempDirectory(candidate, out var prepared))
+                return prepared;
+        }
+        return null;
+    }
+
+    private static string TryResolveFilesDirFromPublishDir(string assemblyDir)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(assemblyDir))
+                return null;
+
+            var dir = new DirectoryInfo(assemblyDir);
+            // Expected: <files>/.godot/mono/publish/arm64/STS2Mobile.dll
+            if (dir.Name == "arm64"
+                && dir.Parent?.Name == "publish"
+                && dir.Parent.Parent?.Name == "mono"
+                && dir.Parent.Parent.Parent?.Name == ".godot"
+                && dir.Parent.Parent.Parent.Parent != null)
+            {
+                return dir.Parent.Parent.Parent.Parent.FullName;
+            }
+        }
+        catch
+        {
+            // Try the next candidate.
+        }
+        return null;
+    }
+
+    private static string TryBuildEnvironmentCandidate(string variable, string relativePath)
+    {
+        try
+        {
+            var root = System.Environment.GetEnvironmentVariable(variable);
+            return string.IsNullOrWhiteSpace(root) ? null : Path.Combine(root, relativePath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool TryPrepareTempDirectory(string candidate, out string prepared)
+    {
+        prepared = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(candidate) || candidate == "/tmp")
+                return false;
+
+            var fullPath = Path.GetFullPath(candidate);
+            Directory.CreateDirectory(fullPath);
+
+            // Validate writability now so Harmony/MonoMod does not discover a bad temp path
+            // inside HarmonySharedState's static initializer, which cannot recover cleanly.
+            var probe = Path.Combine(fullPath, ".sts2mobile_tmp_probe");
+            File.WriteAllText(probe, "ok");
+            File.Delete(probe);
+
+            prepared = fullPath;
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 }

@@ -57,7 +57,12 @@ public static class ModEntry
             // Keep BaseLib first.  It only registers an AssemblyLoad listener,
             // and must be present before ModManager loads BaseLib.dll.
             BaseLibCompatPatches.Apply(_harmony);
-            ModelDbInitPatch.Apply(_harmony);
+            // Avoid early Harmony replacement of ModelDb.Init on Android/Godot 4.5.
+            // On some devices this immediately trips GodotSharp StringName lifetime
+            // assertions (_recognize_path/_reset_state) during startup.  The Huawei
+            // locale workaround is now handled before Godot starts by the Java shell,
+            // so do not introduce another early Harmony patch in this hotfix path.
+            PatchHelper.Log("ModelDb two-phase init patch disabled for Android startup safety.");
             PlatformPatches.Apply(_harmony);
             ReleaseInfoPatches.Apply(_harmony);
 

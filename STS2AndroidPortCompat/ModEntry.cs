@@ -1,9 +1,11 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using Godot;
 using Godot.Bridge;
 using Godot.NativeInterop;
 using HarmonyLib;
+using STS2Mobile.Android;
 using STS2Mobile.Patches;
 
 namespace STS2Mobile;
@@ -44,6 +46,8 @@ public static class ModEntry
         if (_applied)
             return;
         _applied = true;
+
+        EnsureAndroidTempDirectory();
 
         PatchHelper.Log("Initializing STS2Mobile Android port compatibility.");
         _harmony = new Harmony("com.sts2mobile");
@@ -103,6 +107,34 @@ public static class ModEntry
         catch (Exception exception)
         {
             PatchHelper.Log($"Patch application failed: {exception}");
+        }
+    }
+
+    private static void EnsureAndroidTempDirectory()
+    {
+        try
+        {
+            var dataDir = AppPaths.DataDir;
+            if (string.IsNullOrWhiteSpace(dataDir))
+                dataDir = OS.GetDataDir();
+
+            var tempDir = Path.Combine(dataDir, "tmp");
+            Directory.CreateDirectory(tempDir);
+
+            // Android does not guarantee a process-wide /tmp directory. MonoMod/Harmony's
+            // shared-state bootstrap writes a temporary DMD assembly via Path.GetTempPath();
+            // if the runtime falls back to /tmp on devices/emulators where it is absent,
+            // HarmonySharedState's type initializer is permanently poisoned and every patch
+            // appears to fail even though STS2Mobile.dll was loaded successfully.
+            System.Environment.SetEnvironmentVariable("TMPDIR", tempDir);
+            System.Environment.SetEnvironmentVariable("TMP", tempDir);
+            System.Environment.SetEnvironmentVariable("TEMP", tempDir);
+
+            PatchHelper.Log($"Android temp directory configured for Harmony/MonoMod: {tempDir}");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Failed to configure Android temp directory; Harmony may fall back to /tmp: {exception}");
         }
     }
 }

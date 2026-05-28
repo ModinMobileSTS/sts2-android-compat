@@ -149,6 +149,10 @@ public static class ModEntry
 
         string[] candidates =
         {
+            TryBuildEnvironmentCandidate("TMPDIR", null),
+            TryBuildEnvironmentCandidate("TMP", null),
+            TryBuildEnvironmentCandidate("TEMP", null),
+            TryGetRuntimeTempPath(),
             string.IsNullOrWhiteSpace(filesDir) ? null : Path.Combine(filesDir, "tmp"),
             string.IsNullOrWhiteSpace(assemblyDir) ? null : Path.Combine(assemblyDir, "tmp"),
             TryBuildEnvironmentCandidate("HOME", "tmp"),
@@ -193,7 +197,21 @@ public static class ModEntry
         try
         {
             var root = System.Environment.GetEnvironmentVariable(variable);
-            return string.IsNullOrWhiteSpace(root) ? null : Path.Combine(root, relativePath);
+            if (string.IsNullOrWhiteSpace(root))
+                return null;
+            return string.IsNullOrWhiteSpace(relativePath) ? root : Path.Combine(root, relativePath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string TryGetRuntimeTempPath()
+    {
+        try
+        {
+            return Path.GetTempPath();
         }
         catch
         {

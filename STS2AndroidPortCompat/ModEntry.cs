@@ -58,7 +58,6 @@ public static class ModEntry
             // and must be present before ModManager loads BaseLib.dll.
             BaseLibCompatPatches.Apply(_harmony);
             ModelDbInitPatch.Apply(_harmony);
-            LocalePatches.Apply(_harmony);
             PlatformPatches.Apply(_harmony);
             ReleaseInfoPatches.Apply(_harmony);
 

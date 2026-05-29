@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -23,6 +24,8 @@ public static class MerchantSelectionConfirmationPatches
 {
     private const string ConfirmButtonName = "AndroidMerchantConfirmButton";
     private static readonly ConditionalWeakTable<NMerchantInventory, MerchantConfirmState> States = new();
+    private static readonly HashSet<NMerchantSlot> AllowedPurchases = new();
+    private static readonly object AllowedPurchasesLock = new();
     private static readonly BindingFlags InstanceFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
 
     public static void Apply(Harmony harmony)
@@ -37,6 +40,15 @@ public static class MerchantSelectionConfirmationPatches
         PatchHelper.Patch(harmony, typeof(NMerchantSlot), "_GuiInput", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotGuiInputPrefix)));
         PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnMouseReleased", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotMouseReleasedPrefix)));
         PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnSelected", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotSelectedPrefix)));
+        PatchMerchantPurchaseMethod(harmony, typeof(NMerchantCard));
+        PatchMerchantPurchaseMethod(harmony, typeof(NMerchantRelic));
+        PatchMerchantPurchaseMethod(harmony, typeof(NMerchantPotion));
+        PatchMerchantPurchaseMethod(harmony, typeof(NMerchantCardRemoval));
+    }
+
+    private static void PatchMerchantPurchaseMethod(Harmony harmony, Type slotType)
+    {
+        PatchHelper.Patch(harmony, slotType, "OnTryPurchase", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotTryPurchasePrefix)));
     }
 
     public static void InventoryReadyPostfix(NMerchantInventory __instance)
@@ -100,6 +112,8 @@ public static class MerchantSelectionConfirmationPatches
         {
             if (!ShouldConfirmSlotSelection(__instance, out var inventory))
                 return true;
+            if (ConsumePurchaseAllowance(__instance))
+                return true;
 
             SelectSlotForConfirmation(inventory, __instance);
             __result = Task.CompletedTask;
@@ -108,6 +122,27 @@ public static class MerchantSelectionConfirmationPatches
         catch (Exception exception)
         {
             PatchHelper.Log($"Merchant mobile selection confirmation failed; falling back to vanilla purchase: {exception.Message}");
+            return true;
+        }
+    }
+
+    public static bool MerchantSlotTryPurchasePrefix(NMerchantSlot __instance, ref Task __result)
+    {
+        try
+        {
+            if (!ShouldConfirmSlotSelection(__instance, out var inventory))
+                return true;
+            if (ConsumePurchaseAllowance(__instance))
+                return true;
+
+            SelectSlotForConfirmation(inventory, __instance);
+            __result = Task.CompletedTask;
+            PatchHelper.Log($"Merchant purchase intercepted for mobile confirmation: {__instance.GetType().Name}");
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Merchant mobile purchase confirmation failed; falling back to vanilla purchase: {exception.Message}");
             return true;
         }
     }
@@ -177,10 +212,19 @@ public static class MerchantSelectionConfirmationPatches
     {
         var clearHoverTip = typeof(NMerchantSlot).GetMethod("ClearHoverTip", InstanceFlags);
         clearHoverTip?.Invoke(slot, null);
-        var onTryPurchase = typeof(NMerchantSlot).GetMethod("OnTryPurchase", InstanceFlags);
+        var onTryPurchase = slot.GetType().GetMethod("OnTryPurchase", InstanceFlags)
+            ?? typeof(NMerchantSlot).GetMethod("OnTryPurchase", InstanceFlags);
         var inventory = GetMerchantInventory(slot)?.Inventory;
-        if (onTryPurchase?.Invoke(slot, new object[] { inventory }) is Task task)
-            await task;
+        AllowNextPurchase(slot);
+        try
+        {
+            if (onTryPurchase?.Invoke(slot, new object[] { inventory }) is Task task)
+                await task;
+        }
+        finally
+        {
+            ClearPurchaseAllowance(slot);
+        }
     }
 
     private static void ClearPendingSelection(NMerchantInventory inventory)
@@ -229,6 +273,34 @@ public static class MerchantSelectionConfirmationPatches
     private static bool IsInputBlocked(NMerchantInventory inventory)
     {
         return GetField(inventory, "_isInputBlocked") is true;
+    }
+
+    private static void AllowNextPurchase(NMerchantSlot slot)
+    {
+        if (slot == null)
+            return;
+        lock (AllowedPurchasesLock)
+            AllowedPurchases.Add(slot);
+    }
+
+    private static bool ConsumePurchaseAllowance(NMerchantSlot slot)
+    {
+        if (slot == null)
+            return false;
+        lock (AllowedPurchasesLock)
+        {
+            if (!AllowedPurchases.Remove(slot))
+                return false;
+            return true;
+        }
+    }
+
+    private static void ClearPurchaseAllowance(NMerchantSlot slot)
+    {
+        if (slot == null)
+            return;
+        lock (AllowedPurchasesLock)
+            AllowedPurchases.Remove(slot);
     }
 
     private static NMerchantInventory GetMerchantInventory(NMerchantSlot slot)

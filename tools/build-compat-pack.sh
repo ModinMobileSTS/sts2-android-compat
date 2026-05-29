@@ -21,7 +21,18 @@ if [[ ! -x "$DOTNET_BIN" ]]; then
 fi
 rm -rf "$OUT_ROOT"
 mkdir -p "$OUT_ROOT/$PACK_ID"
-"$DOTNET_BIN" build "$PROJECT" -p:ReferenceFlavor="$REFERENCE_FLAVOR" -v:q
+GIT_BRANCH="$(git -C "$ROOT" branch --show-current 2>/dev/null || true)"
+if [[ -z "$GIT_BRANCH" ]]; then
+  GIT_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+fi
+GIT_COMMIT="$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+GIT_SUBJECT="$(git -C "$ROOT" log -1 --pretty=%s 2>/dev/null || echo unknown)"
+GIT_DIRTY="false"
+if ! git -C "$ROOT" diff --quiet --ignore-submodules -- 2>/dev/null || ! git -C "$ROOT" diff --cached --quiet --ignore-submodules -- 2>/dev/null || [[ -n "$(git -C "$ROOT" ls-files --others --exclude-standard 2>/dev/null)" ]]; then
+  GIT_DIRTY="true"
+fi
+BUILD_TIMESTAMP_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+"$DOTNET_BIN" build "$PROJECT" -p:ReferenceFlavor="$REFERENCE_FLAVOR" -p:_CompatGitBranch="$GIT_BRANCH" -p:_CompatGitCommit="$GIT_COMMIT" -p:_CompatGitCommitSubject="$GIT_SUBJECT" -p:_CompatGitDirty="$GIT_DIRTY" -p:_CompatBuildTimestampUtc="$BUILD_TIMESTAMP_UTC" -v:q
 cp -f "$ROOT/STS2AndroidPortCompat/bin/Debug/net9.0/STS2Mobile.dll" "$OUT_ROOT/$PACK_ID/STS2Mobile.dll"
 "$ROOT/tools/make-port-overlay-pck.py" "$OUT_ROOT/$PACK_ID/port_compat.pck"
 cp -f "$MANIFEST" "$OUT_ROOT/$PACK_ID/compat_manifest.json"

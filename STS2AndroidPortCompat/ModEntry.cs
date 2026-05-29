@@ -49,6 +49,7 @@ public static class ModEntry
         EnsureAndroidTempDirectory();
 
         PatchHelper.Log("Initializing STS2Mobile Android port compatibility.");
+        CompatBuildInfo.Log();
         _harmony = new Harmony("com.sts2mobile");
 
         // Reference launcher applies this outside the game-type try/catch so it
@@ -57,10 +58,12 @@ public static class ModEntry
 
         try
         {
-            // Keep BaseLib first.  It only registers an AssemblyLoad listener,
-            // and must be present before ModManager loads BaseLib.dll.
+            // Keep mod framework shims first.  They only register AssemblyLoad
+            // listeners, and must be present before ModManager loads user DLLs.
             BaseLibCompatPatches.Apply(_harmony);
+            RitsuLibCompatPatches.Apply(_harmony);
             ModelDbInitPatch.Apply(_harmony);
+            UnlockStateCompatPatches.Apply(_harmony);
             PlatformPatches.Apply(_harmony);
             ReleaseInfoPatches.Apply(_harmony);
 

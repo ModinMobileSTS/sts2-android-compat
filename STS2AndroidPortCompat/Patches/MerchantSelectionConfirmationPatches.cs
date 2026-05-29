@@ -1,0 +1,217 @@
+using System;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using Godot;
+using HarmonyLib;
+using MegaCrit.Sts2.Core.Entities.Merchant;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
+using MegaCrit.Sts2.Core.Nodes.Screens.ScreenContext;
+using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
+using STS2Mobile.Android;
+
+namespace STS2Mobile.Patches;
+
+/// <summary>
+/// Adds the reference Android port's second-tap purchase confirmation to the
+/// merchant screen.  The imported PC scene has no ConfirmButton node, so the
+/// compat layer creates one at runtime and intercepts NMerchantSlot.OnSelected
+/// before it immediately buys the selected item.
+/// </summary>
+public static class MerchantSelectionConfirmationPatches
+{
+    private const string ConfirmButtonName = "AndroidMerchantConfirmButton";
+    private static readonly ConditionalWeakTable<NMerchantInventory, MerchantConfirmState> States = new();
+    private static readonly BindingFlags InstanceFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+    public static void Apply(Harmony harmony)
+    {
+        PatchHelper.Patch(harmony, typeof(NMerchantInventory), "_Ready", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(InventoryReadyPostfix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantInventory), "Open", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(ClearInventorySelectionPrefix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantInventory), "Close", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(ClearInventorySelectionPrefix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantInventory), "OnPurchaseCompleted", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(ClearInventorySelectionPrefix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantInventory), "BlockInput", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(RefreshInventoryPostfix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantInventory), "UnblockInput", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(RefreshInventoryPostfix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantInventory), "OnActiveScreenUpdated", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(RefreshInventoryPostfix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnSelected", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotSelectedPrefix)));
+    }
+
+    public static void InventoryReadyPostfix(NMerchantInventory __instance)
+    {
+        EnsureConfirmButton(__instance);
+    }
+
+    public static void ClearInventorySelectionPrefix(NMerchantInventory __instance)
+    {
+        ClearPendingSelection(__instance);
+    }
+
+    public static void RefreshInventoryPostfix(NMerchantInventory __instance)
+    {
+        RefreshConfirmButtonState(__instance);
+    }
+
+    public static bool MerchantSlotSelectedPrefix(NMerchantSlot __instance, ref Task __result)
+    {
+        try
+        {
+            var inventory = GetMerchantInventory(__instance);
+            var entry = __instance?.Entry;
+            if (!IsEnabled() || inventory == null || entry == null || !entry.IsStocked)
+                return true;
+            if (IsInputBlocked(inventory) || !inventory.IsOpen)
+                return true;
+
+            SelectSlotForConfirmation(inventory, __instance);
+            __result = Task.CompletedTask;
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Merchant mobile selection confirmation failed; falling back to vanilla purchase: {exception.Message}");
+            return true;
+        }
+    }
+
+    private static void EnsureConfirmButton(NMerchantInventory inventory)
+    {
+        try
+        {
+            var state = States.GetOrCreateValue(inventory);
+            if (state.ConfirmButton != null && GodotObject.IsInstanceValid(state.ConfirmButton))
+                return;
+
+            var button = inventory.GetNodeOrNull<NConfirmButton>("%ConfirmButton")
+                ?? inventory.GetNodeOrNull<NConfirmButton>("ConfirmButton")
+                ?? inventory.GetNodeOrNull<NConfirmButton>(ConfirmButtonName)
+                ?? CreateConfirmButton();
+            if (button == null)
+                return;
+
+            if (button.GetParent() == null)
+                inventory.AddChild(button);
+            button.Name = ConfirmButtonName;
+            button.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => OnConfirmButtonReleased(inventory)));
+            button.Disable();
+            state.ConfirmButton = button;
+            PatchHelper.Log("Merchant mobile selection confirmation button ready.");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Inject merchant confirmation button failed: {exception.Message}");
+        }
+    }
+
+    private static NConfirmButton CreateConfirmButton()
+    {
+        var packed = ResourceLoader.Load<PackedScene>("res://scenes/ui/confirm_button.tscn");
+        return packed?.Instantiate<NConfirmButton>();
+    }
+
+    private static void SelectSlotForConfirmation(NMerchantInventory inventory, NMerchantSlot slot)
+    {
+        if (!IsEnabled() || inventory == null || slot == null || IsInputBlocked(inventory) || !inventory.IsOpen || slot.Entry == null || !slot.Entry.IsStocked)
+            return;
+        EnsureConfirmButton(inventory);
+        var state = States.GetOrCreateValue(inventory);
+        state.PendingPurchaseSlot = slot;
+        slot.TryGrabFocus();
+        RefreshConfirmButtonState(inventory);
+        // Match the reference fix 004b63f3: do not force ActiveScreenContext.Update()
+        // here, because it can move the virtual finger/focus away from the slot.
+    }
+
+    private static async void OnConfirmButtonReleased(NMerchantInventory inventory)
+    {
+        var state = GetState(inventory);
+        var pendingPurchaseSlot = state?.PendingPurchaseSlot;
+        ClearPendingSelection(inventory);
+        if (pendingPurchaseSlot == null || !GodotObject.IsInstanceValid(pendingPurchaseSlot) || !pendingPurchaseSlot.IsInsideTree())
+            return;
+        var entry = pendingPurchaseSlot.Entry;
+        if (entry == null || !entry.IsStocked)
+            return;
+        await TryPurchaseNow(pendingPurchaseSlot);
+    }
+
+    private static async Task TryPurchaseNow(NMerchantSlot slot)
+    {
+        var clearHoverTip = typeof(NMerchantSlot).GetMethod("ClearHoverTip", InstanceFlags);
+        clearHoverTip?.Invoke(slot, null);
+        var onTryPurchase = typeof(NMerchantSlot).GetMethod("OnTryPurchase", InstanceFlags);
+        var inventory = GetMerchantInventory(slot)?.Inventory;
+        if (onTryPurchase?.Invoke(slot, new object[] { inventory }) is Task task)
+            await task;
+    }
+
+    private static void ClearPendingSelection(NMerchantInventory inventory)
+    {
+        var state = GetState(inventory);
+        if (state != null)
+            state.PendingPurchaseSlot = null;
+        RefreshConfirmButtonState(inventory);
+    }
+
+    private static void RefreshConfirmButtonState(NMerchantInventory inventory)
+    {
+        var state = GetState(inventory);
+        var button = state?.ConfirmButton;
+        if (button == null || !GodotObject.IsInstanceValid(button))
+            return;
+        if (IsEnabled()
+            && !IsInputBlocked(inventory)
+            && inventory.IsOpen
+            && IsCurrentScreen(inventory)
+            && state.PendingPurchaseSlot != null
+            && GodotObject.IsInstanceValid(state.PendingPurchaseSlot)
+            && state.PendingPurchaseSlot.Entry?.IsStocked == true)
+            button.Enable();
+        else
+            button.Disable();
+    }
+
+    private static bool IsEnabled()
+    {
+        return OS.HasFeature("mobile")
+            && AndroidSettingsBridge.GetBool("mobile_selection_confirmation", true);
+    }
+
+    private static bool IsInputBlocked(NMerchantInventory inventory)
+    {
+        return GetField(inventory, "_isInputBlocked") is true;
+    }
+
+    private static bool IsCurrentScreen(NMerchantInventory inventory)
+    {
+        try
+        {
+            return ActiveScreenContext.Instance?.IsCurrent(inventory) ?? true;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static NMerchantInventory GetMerchantInventory(NMerchantSlot slot)
+    {
+        return GetField(slot, "_merchantRug") as NMerchantInventory;
+    }
+
+    private static object GetField(object target, string name)
+    {
+        return target?.GetType().GetField(name, InstanceFlags)?.GetValue(target);
+    }
+
+    private static MerchantConfirmState GetState(NMerchantInventory inventory)
+    {
+        return inventory != null && States.TryGetValue(inventory, out var state) ? state : null;
+    }
+
+    private sealed class MerchantConfirmState
+    {
+        public NMerchantSlot PendingPurchaseSlot;
+        public NConfirmButton ConfirmButton;
+    }
+}

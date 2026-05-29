@@ -30,8 +30,39 @@ public static class AndroidInputCompatPatches
 
     public static void Apply(Harmony harmony)
     {
+        PatchHelper.Patch(harmony, typeof(NGame), "_EnterTree", postfix: PatchHelper.Method(typeof(AndroidInputCompatPatches), nameof(GameEnterTreePostfix)));
+        PatchHelper.Patch(harmony, typeof(NGame), "_Ready", postfix: PatchHelper.Method(typeof(AndroidInputCompatPatches), nameof(GameReadyPostfix)));
+        PatchHelper.Patch(harmony, typeof(NGame), "_Notification", prefix: PatchHelper.Method(typeof(AndroidInputCompatPatches), nameof(GameNotificationPrefix)));
         PatchHelper.Patch(harmony, typeof(NGame), "_Input", prefix: PatchHelper.Method(typeof(AndroidInputCompatPatches), nameof(InputPrefix)));
         PatchHelper.Patch(harmony, typeof(NInputManager), "_UnhandledInput", prefix: PatchHelper.Method(typeof(AndroidInputCompatPatches), nameof(UnhandledInputPrefix)));
+    }
+
+    public static void GameEnterTreePostfix(NGame __instance)
+    {
+        ConfigureMobileBackHandling(__instance);
+    }
+
+    public static void GameReadyPostfix(NGame __instance)
+    {
+        ConfigureMobileBackHandling(__instance);
+    }
+
+    public static bool GameNotificationPrefix(NGame __instance, int what)
+    {
+        try
+        {
+            if (OS.HasFeature("mobile") && what == (int)Node.NotificationWMGoBackRequest)
+            {
+                ConfigureMobileBackHandling(__instance);
+                DispatchMobileBackAsEscape(__instance);
+                return false;
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Android go-back notification compat failed: {exception.Message}");
+        }
+        return true;
     }
 
     public static bool InputPrefix(Node __instance, InputEvent inputEvent)
@@ -74,20 +105,53 @@ public static class AndroidInputCompatPatches
 
     private static bool TryHandleMobileBackInput(Node inputManager, InputEvent inputEvent)
     {
-        if (!inputEvent.IsActionPressed(MobileBackAction))
+        if (!inputEvent.IsActionPressed(MobileBackAction) && !IsAndroidBackKeyEvent(inputEvent))
             return false;
-        if (NGame.Instance.Transition.InTransition)
-            return true;
-        var frame = inputManager.GetTree().GetFrame();
+        DispatchMobileBackAsEscape(inputManager);
+        inputManager.GetViewport()?.SetInputAsHandled();
+        return true;
+    }
+
+    private static void ConfigureMobileBackHandling(Node node)
+    {
+        try
+        {
+            if (!OS.HasFeature("mobile") && !OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
+                return;
+            var tree = node?.GetTree();
+            if (tree != null)
+                tree.QuitOnGoBack = false;
+            if (!InputMap.HasAction(MobileBackAction))
+                InputMap.AddAction(MobileBackAction, 0.5f);
+            var backKey = new InputEventKey { PhysicalKeycode = (Key)4194305 };
+            if (!InputMap.ActionHasEvent(MobileBackAction, backKey))
+                InputMap.ActionAddEvent(MobileBackAction, backKey);
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Configure mobile back handling failed: {exception.Message}");
+        }
+    }
+
+    private static bool IsAndroidBackKeyEvent(InputEvent inputEvent)
+    {
+        return inputEvent is InputEventKey { Pressed: true, Echo: false } key
+            && ((long)key.PhysicalKeycode == 4194305L || (long)key.Keycode == 4194305L);
+    }
+
+    private static void DispatchMobileBackAsEscape(Node inputManager)
+    {
+        if (NGame.Instance?.Transition?.InTransition == true)
+            return;
+        var frame = inputManager?.GetTree()?.GetFrame() ?? -1L;
         if (_lastBackDispatchFrame == frame)
-            return true;
+            return;
         _lastBackDispatchFrame = frame;
         DispatchMegaInput(MegaInput.cancel, true);
         DispatchMegaInput(MegaInput.pauseAndBack, true);
         DispatchMegaInput(MegaInput.cancel, false);
         DispatchMegaInput(MegaInput.pauseAndBack, false);
-        inputManager.GetViewport()?.SetInputAsHandled();
-        return true;
+        GD.Print("[AndroidInput] dispatched Android Back as Escape/cancel");
     }
 
     private static IEnumerable<(StringName Action, bool Pressed)> EnumerateCompatibleControllerEvents(InputEvent inputEvent)
@@ -179,11 +243,11 @@ public static class AndroidInputCompatPatches
                 {
                     ActiveTouchPoints[touch.Index] = new TouchPointState { StartPosition = touch.Position };
                     SuppressedSecondaryTouchIndices.Add(touch.Index);
-                    var position = (firstTouch.StartPosition + touch.Position) * 0.5f;
+                    var position = firstTouch.StartPosition;
                     if (Time.GetTicksMsec() - _lastTwoFingerDispatchTicks > 250UL)
                     {
                         _lastTwoFingerDispatchTicks = Time.GetTicksMsec();
-                        GD.Print($"[MobileRightClick] two-finger gesture detected at {position}");
+                        GD.Print($"[MobileRightClick] two-finger gesture detected at first finger pos={position}, second finger pos={touch.Position}");
                         inputManager.GetViewport()?.SetInputAsHandled();
                         Callable.From(() =>
                         {

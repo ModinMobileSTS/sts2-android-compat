@@ -4,10 +4,10 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
-using MegaCrit.Sts2.Core.Nodes.Screens.ScreenContext;
 using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 using STS2Mobile.Android;
 
@@ -34,6 +34,8 @@ public static class MerchantSelectionConfirmationPatches
         PatchHelper.Patch(harmony, typeof(NMerchantInventory), "BlockInput", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(RefreshInventoryPostfix)));
         PatchHelper.Patch(harmony, typeof(NMerchantInventory), "UnblockInput", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(RefreshInventoryPostfix)));
         PatchHelper.Patch(harmony, typeof(NMerchantInventory), "OnActiveScreenUpdated", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(RefreshInventoryPostfix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantSlot), "_GuiInput", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotGuiInputPrefix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnMouseReleased", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotMouseReleasedPrefix)));
         PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnSelected", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotSelectedPrefix)));
     }
 
@@ -52,15 +54,51 @@ public static class MerchantSelectionConfirmationPatches
         RefreshConfirmButtonState(__instance);
     }
 
+    public static bool MerchantSlotGuiInputPrefix(NMerchantSlot __instance, InputEvent inputEvent)
+    {
+        try
+        {
+            if (!ShouldConfirmSlotSelection(__instance, out var inventory))
+                return true;
+            if (!inputEvent.IsActionPressed(MegaInput.select))
+                return true;
+            SelectSlotForConfirmation(inventory, __instance);
+            __instance.GetViewport()?.SetInputAsHandled();
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Merchant mobile _GuiInput confirmation failed; falling back to vanilla input: {exception.Message}");
+            return true;
+        }
+    }
+
+    public static bool MerchantSlotMouseReleasedPrefix(NMerchantSlot __instance, InputEvent inputEvent)
+    {
+        try
+        {
+            if (!ShouldConfirmSlotSelection(__instance, out var inventory))
+                return true;
+            if (GetField(__instance, "_isHovered") is not true || GetField(__instance, "_ignoreMouseRelease") is true)
+                return true;
+            if (inputEvent is not InputEventMouseButton { ButtonIndex: MouseButton.Left })
+                return true;
+            SelectSlotForConfirmation(inventory, __instance);
+            __instance.GetViewport()?.SetInputAsHandled();
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Merchant mobile mouse confirmation failed; falling back to vanilla input: {exception.Message}");
+            return true;
+        }
+    }
+
     public static bool MerchantSlotSelectedPrefix(NMerchantSlot __instance, ref Task __result)
     {
         try
         {
-            var inventory = GetMerchantInventory(__instance);
-            var entry = __instance?.Entry;
-            if (!IsEnabled() || inventory == null || entry == null || !entry.IsStocked)
-                return true;
-            if (IsInputBlocked(inventory) || !inventory.IsOpen)
+            if (!ShouldConfirmSlotSelection(__instance, out var inventory))
                 return true;
 
             SelectSlotForConfirmation(inventory, __instance);
@@ -162,13 +200,24 @@ public static class MerchantSelectionConfirmationPatches
         if (IsEnabled()
             && !IsInputBlocked(inventory)
             && inventory.IsOpen
-            && IsCurrentScreen(inventory)
             && state.PendingPurchaseSlot != null
             && GodotObject.IsInstanceValid(state.PendingPurchaseSlot)
             && state.PendingPurchaseSlot.Entry?.IsStocked == true)
             button.Enable();
         else
             button.Disable();
+    }
+
+    private static bool ShouldConfirmSlotSelection(NMerchantSlot slot, out NMerchantInventory inventory)
+    {
+        inventory = GetMerchantInventory(slot);
+        var entry = slot?.Entry;
+        return IsEnabled()
+            && inventory != null
+            && entry != null
+            && entry.IsStocked
+            && !IsInputBlocked(inventory)
+            && inventory.IsOpen;
     }
 
     private static bool IsEnabled()
@@ -180,18 +229,6 @@ public static class MerchantSelectionConfirmationPatches
     private static bool IsInputBlocked(NMerchantInventory inventory)
     {
         return GetField(inventory, "_isInputBlocked") is true;
-    }
-
-    private static bool IsCurrentScreen(NMerchantInventory inventory)
-    {
-        try
-        {
-            return ActiveScreenContext.Instance?.IsCurrent(inventory) ?? true;
-        }
-        catch
-        {
-            return true;
-        }
     }
 
     private static NMerchantInventory GetMerchantInventory(NMerchantSlot slot)

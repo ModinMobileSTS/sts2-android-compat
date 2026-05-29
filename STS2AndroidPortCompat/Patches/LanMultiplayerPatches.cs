@@ -25,6 +25,7 @@ using MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync;
 using MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
 using MegaCrit.Sts2.Core.Multiplayer.Messages;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using MegaCrit.Sts2.Core.Platform;
@@ -413,6 +414,23 @@ public static class LanMultiplayerPatches
 
     private static string NormalizeText(string raw) => (raw ?? string.Empty).Trim().Normalize(NormalizationForm.FormKC);
 
+    private static string T(string zh, string en) => IsZh() ? zh : en;
+
+    private static bool IsZh()
+    {
+        try
+        {
+            var locManagerType = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Localization.LocManager");
+            var instance = locManagerType?.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+            var language = locManagerType?.GetProperty("Language", BindingFlags.Public | BindingFlags.Instance)?.GetValue(instance) as string ?? string.Empty;
+            return language.StartsWith("zh", StringComparison.OrdinalIgnoreCase) || language.StartsWith("zhs", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool TryParseEndpoint(string hostInput, string portInput, out string host, out ushort port, out string error)
     {
         host = (hostInput ?? string.Empty).Trim();
@@ -422,7 +440,7 @@ public static class LanMultiplayerPatches
         if (string.IsNullOrWhiteSpace(host))
         {
             port = 0;
-            error = "请输入房主 IP 地址。\nEnter the host IP address.";
+            error = T("请输入房主 IP 地址。", "Enter the host IP address.");
             return false;
         }
         if (string.IsNullOrWhiteSpace(portText))
@@ -433,7 +451,7 @@ public static class LanMultiplayerPatches
         }
         if (!ushort.TryParse(portText, out port) || port == 0)
         {
-            error = "端口必须是 1 到 65535 之间的数字。\nPort must be a number from 1 to 65535.";
+            error = T("端口必须是 1 到 65535 之间的数字。", "Port must be a number from 1 to 65535.");
             return false;
         }
         error = string.Empty;
@@ -491,7 +509,7 @@ public static class LanMultiplayerPatches
     private static void ConfigureLanJoinScreen(NJoinFriendScreen screen)
     {
         var title = screen.GetNodeOrNull<MegaLabel>("TitleLabel");
-        title?.SetTextAutoSize("加入局域网游戏 / Join LAN Game");
+        title?.SetTextAutoSize(T("加入局域网游戏", "Join LAN Game"));
 
         var buttonContainer = screen.GetNodeOrNull<Control>("%ButtonContainer");
         if (buttonContainer != null)
@@ -508,7 +526,7 @@ public static class LanMultiplayerPatches
         container.Visible = true;
 
         var helpLabel = container.GetNodeOrNull<MegaLabel>("LanHelpLabel");
-        helpLabel?.SetTextAutoSize($"房主先在同一 Wi‑Fi / 局域网内开房，然后在这里输入房主 IP 和端口加入。默认端口：{DefaultPort}。也可以直接输入 IP:端口。\nHost a game on the same Wi‑Fi / LAN, then enter the host IP and port here. Default port: {DefaultPort}. You can also enter IP:port.");
+        helpLabel?.SetTextAutoSize(T($"房主先在同一 Wi‑Fi / 局域网内开房，然后在这里输入房主 IP 和端口加入。默认端口：{DefaultPort}。也可以直接输入 IP:端口。", $"Host a game on the same Wi‑Fi / LAN, then enter the host IP and port here. Default port: {DefaultPort}. You can also enter IP:port."));
 
         var hostInput = container.GetNode<LineEdit>("LanHostRow/LanHostInput");
         var portInput = container.GetNode<LineEdit>("LanPortRow/LanPortInput");
@@ -521,7 +539,7 @@ public static class LanMultiplayerPatches
         if (refreshButton != null)
         {
             var label = refreshButton.GetNodeOrNull<MegaLabel>("Label");
-            label?.SetTextAutoSize("加入 / Join");
+            label?.SetTextAutoSize(T("加入", "Join"));
             var icon = refreshButton.GetNodeOrNull<Control>("ControllerIcon");
             if (icon != null)
                 icon.Visible = false;
@@ -551,12 +569,12 @@ public static class LanMultiplayerPatches
         };
         container.AddThemeConstantOverride("separation", 18);
 
-        var help = MakeMegaLabel("LanHelpLabel", "输入房主局域网 IP 和端口加入。\nJoin the host by entering their LAN IP and port.", 24, Colors.White);
+        var help = MakeMegaLabel("LanHelpLabel", T("输入房主局域网 IP 和端口加入。", "Join the host by entering their LAN IP and port."), 26, Colors.White);
         help.CustomMinimumSize = new Vector2(0, 72);
         help.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         container.AddChild(help);
-        container.AddChild(MakeInputRow("LanHostRow", "LanHostLabel", "房主 IP / Host IP", "LanHostInput", false));
-        container.AddChild(MakeInputRow("LanPortRow", "LanPortLabel", "端口 / Port", "LanPortInput", true));
+        container.AddChild(MakeInputRow("LanHostRow", "LanHostLabel", T("房主 IP", "Host IP"), "LanHostInput", false));
+        container.AddChild(MakeInputRow("LanPortRow", "LanPortLabel", T("端口", "Port"), "LanPortInput", true));
         panel.AddChild(container);
         AndroidFontCoveragePatches.RegisterTreePostfix(container);
         return container;
@@ -626,7 +644,7 @@ public static class LanMultiplayerPatches
     {
         if (!TryParseEndpoint(hostInput.Text, portInput.Text, out var host, out var port, out var error))
         {
-            ShowInfoPopup("无法加入局域网房间 / Unable to join LAN game", error);
+            ShowInfoPopup(T("无法加入局域网房间", "Unable to join LAN game"), error);
             return;
         }
         hostInput.Text = host;
@@ -755,22 +773,20 @@ public static class LanMultiplayerPatches
 
     private static void ShowLanHostInfo()
     {
-        AddModal(NErrorPopup.Create("局域网房间已开启 / LAN Host Ready", BuildHostInstructions(DefaultPort), showReportBugButton: false));
+        AddModal(NErrorPopup.Create(T("局域网房间已开启", "LAN Host Ready"), BuildHostInstructions(DefaultPort), showReportBugButton: false));
     }
 
     private static string BuildHostInstructions(ushort port)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("局域网房间已开启。 / LAN game is ready.");
-        builder.AppendLine("其他玩家在同一 Wi‑Fi / 局域网下输入下面任一地址即可加入：");
-        builder.AppendLine("Other players on the same Wi‑Fi / LAN can join with one of these addresses:");
+        builder.AppendLine(T("局域网房间已开启。", "LAN game is ready."));
+        builder.AppendLine(T("其他玩家在同一 Wi‑Fi / 局域网下输入下面任一地址即可加入：", "Other players on the same Wi‑Fi / LAN can join with one of these addresses:"));
         builder.AppendLine();
         var addresses = GetLocalIpv4Addresses().ToArray();
         if (addresses.Length == 0)
         {
-            builder.AppendLine($"端口 / Port: {port}");
-            builder.AppendLine("未能自动识别本机局域网 IP，请在系统网络设置里查看本机 IP 后，使用 <IP>:<端口> 加入。");
-            builder.AppendLine("Could not detect this device's LAN IP. Check system network settings and use <IP>:<port>.");
+            builder.AppendLine(T($"端口：{port}", $"Port: {port}"));
+            builder.AppendLine(T("未能自动识别本机局域网 IP，请在系统网络设置里查看本机 IP 后，使用 <IP>:<端口> 加入。", "Could not detect this device's LAN IP. Check system network settings and use <IP>:<port>."));
         }
         else
         {

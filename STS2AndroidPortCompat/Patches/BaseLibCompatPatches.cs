@@ -28,7 +28,8 @@ namespace STS2Mobile.Patches;
 public static class BaseLibCompatPatches
 {
     private static Harmony _harmony;
-    private static bool _patched;
+    private static bool _asyncMethodCallPatched;
+    private static bool _extendedSavePatchesPatched;
 
     public static void Apply(Harmony harmony)
     {
@@ -39,7 +40,7 @@ public static class BaseLibCompatPatches
 
     private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
     {
-        if (_patched) return;
+        if (_asyncMethodCallPatched && _extendedSavePatchesPatched) return;
         var asmName = args.LoadedAssembly.GetName().Name;
         if (asmName != "BaseLib") return;
         TryPatchBaseLib(args.LoadedAssembly);
@@ -47,7 +48,13 @@ public static class BaseLibCompatPatches
 
     private static void TryPatchBaseLib(System.Reflection.Assembly baseLibAssembly)
     {
-        if (_patched)
+        TryPatchAsyncMethodCall(baseLibAssembly);
+        TryPatchExtendedSavePatches(baseLibAssembly);
+    }
+
+    private static void TryPatchAsyncMethodCall(System.Reflection.Assembly baseLibAssembly)
+    {
+        if (_asyncMethodCallPatched)
             return;
         try
         {
@@ -67,12 +74,45 @@ public static class BaseLibCompatPatches
 
             var prefix = AccessTools.Method(typeof(BaseLibCompatPatches), nameof(AsyncMethodCallCreatePrefix));
             _harmony.Patch(createMethod, prefix: new HarmonyMethod(prefix));
-            _patched = true;
+            _asyncMethodCallPatched = true;
             PatchHelper.Log("Patched BaseLib.Utils.Patching.AsyncMethodCall.Create (state-machine hooks disabled for mobile compat)");
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"BaseLibCompat: failed to patch on load: {exception.Message}");
+            PatchHelper.Log($"BaseLibCompat: failed to patch AsyncMethodCall on load: {exception.Message}");
+        }
+    }
+
+    private static void TryPatchExtendedSavePatches(System.Reflection.Assembly baseLibAssembly)
+    {
+        if (_extendedSavePatchesPatched)
+            return;
+        try
+        {
+            var extendedSavePatchesType = baseLibAssembly.GetType("BaseLib.Patches.Saves.ExtendedSavePatches");
+            if (extendedSavePatchesType == null)
+            {
+                PatchHelper.Log("BaseLibCompat: ExtendedSavePatches type not found in BaseLib assembly");
+                return;
+            }
+
+            var patchMethod = AccessTools.Method(extendedSavePatchesType, "Patch", new[] { typeof(Harmony) })
+                ?? extendedSavePatchesType.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                    .FirstOrDefault(method => method.Name == "Patch" && method.GetParameters().Length == 1 && method.GetParameters()[0].ParameterType.FullName == typeof(Harmony).FullName);
+            if (patchMethod == null)
+            {
+                PatchHelper.Log("BaseLibCompat: ExtendedSavePatches.Patch(Harmony) method not found");
+                return;
+            }
+
+            var prefix = AccessTools.Method(typeof(BaseLibCompatPatches), nameof(ExtendedSavePatchesPatchPrefix));
+            _harmony.Patch(patchMethod, prefix: new HarmonyMethod(prefix));
+            _extendedSavePatchesPatched = true;
+            PatchHelper.Log("Patched BaseLib.Patches.Saves.ExtendedSavePatches.Patch (extended save context disabled for mobile compat)");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"BaseLibCompat: failed to patch ExtendedSavePatches on load: {exception.Message}");
         }
     }
 
@@ -80,6 +120,12 @@ public static class BaseLibCompatPatches
     {
         Console.WriteLine("[BaseLibCompat] Skipping AsyncMethodCall.Create (mobile workaround) — async hook will not fire");
         __result = code.ToList();
+        return false;
+    }
+
+    public static bool ExtendedSavePatchesPatchPrefix()
+    {
+        Console.WriteLine("[BaseLibCompat] Skipping ExtendedSavePatches.Patch (mobile workaround) — BaseLib extended save context support disabled");
         return false;
     }
 }

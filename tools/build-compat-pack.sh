@@ -18,10 +18,39 @@ if [[ ! -x "$DOTNET_BIN" ]]; then
 fi
 rm -rf "$OUT_ROOT"
 mkdir -p "$OUT_ROOT/$PACK_ID"
-"$DOTNET_BIN" build "$PROJECT" -p:ReferenceFlavor="$REFERENCE_FLAVOR" -v:q
+GIT_BRANCH="${COMPAT_BUILD_GIT_BRANCH:-$(git -C "$ROOT" branch --show-current 2>/dev/null || true)}"
+if [[ -z "$GIT_BRANCH" ]]; then
+  GIT_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+fi
+GIT_COMMIT="${COMPAT_BUILD_GIT_COMMIT:-$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)}"
+GIT_SUBJECT="${COMPAT_BUILD_GIT_SUBJECT:-$(git -C "$ROOT" log -1 --pretty=%s 2>/dev/null || echo unknown)}"
+GIT_DIRTY="${COMPAT_BUILD_GIT_DIRTY:-false}"
+if [[ "${COMPAT_BUILD_GIT_DIRTY:-}" == "" ]]; then
+  if ! git -C "$ROOT" diff --quiet --ignore-submodules -- 2>/dev/null || ! git -C "$ROOT" diff --cached --quiet --ignore-submodules -- 2>/dev/null || [[ -n "$(git -C "$ROOT" ls-files --others --exclude-standard 2>/dev/null)" ]]; then
+    GIT_DIRTY="true"
+  fi
+fi
+BUILD_TIMESTAMP_UTC="${COMPAT_BUILD_TIMESTAMP_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+"$DOTNET_BIN" build "$PROJECT" -p:ReferenceFlavor="$REFERENCE_FLAVOR" -p:_CompatGitBranch="$GIT_BRANCH" -p:_CompatGitCommit="$GIT_COMMIT" -p:_CompatGitCommitSubject="$GIT_SUBJECT" -p:_CompatGitDirty="$GIT_DIRTY" -p:_CompatBuildTimestampUtc="$BUILD_TIMESTAMP_UTC" -v:q
 cp -f "$ROOT/STS2AndroidPortCompat/bin/Debug/net9.0/STS2Mobile.dll" "$OUT_ROOT/$PACK_ID/STS2Mobile.dll"
 "$ROOT/tools/make-port-overlay-pck.py" "$OUT_ROOT/$PACK_ID/port_compat.pck"
 cp -f "$MANIFEST" "$OUT_ROOT/$PACK_ID/compat_manifest.json"
+python3 - <<'PYMANIFEST' "$OUT_ROOT/$PACK_ID/compat_manifest.json" "$GIT_BRANCH" "$GIT_COMMIT" "$GIT_SUBJECT" "$GIT_DIRTY" "$BUILD_TIMESTAMP_UTC"
+import json, sys
+path, branch, commit, subject, dirty, built_at = sys.argv[1:]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)
+data["build_info"] = {
+    "branch": branch,
+    "commit": commit,
+    "subject": subject,
+    "dirty": dirty,
+    "built_utc": built_at,
+}
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+PYMANIFEST
 (
   cd "$OUT_ROOT/$PACK_ID"
   sha256sum STS2Mobile.dll port_compat.pck > SHA256SUMS

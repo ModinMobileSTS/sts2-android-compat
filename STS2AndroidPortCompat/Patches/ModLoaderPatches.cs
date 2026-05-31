@@ -44,6 +44,27 @@ public static class ModLoaderPatches
         SetField("_fileIo", fileIo);
         AppDomain.CurrentDomain.AssemblyResolve += InvokeAssemblyResolve;
 
+        // Register VANILLA model placeholders before any mod is loaded.
+        //
+        // On Android/Mono, Harmony-patching a member (e.g. HextechRunes patches the
+        // UnlockState.Relics getter) eagerly runs the declaring type's static
+        // constructor. UnlockState..cctor walks ModelDb.AllEncounters -> Act<Overgrowth>
+        // and other vanilla models, which throws KeyNotFound if _contentById is
+        // empty. On PC/CoreCLR the cctor is not triggered this eagerly, so the mod
+        // loads cleanly. Mod initializers also build static maps that reference
+        // vanilla models (e.g. wuwancients.HiddenSeaRecord..cctor references several
+        // vanilla relics). Pre-registering vanilla placeholders here makes those
+        // early accesses resolve.
+        //
+        // We must NOT compute ids for MOD model types yet: mods such as
+        // YuWanCard/BaseLib postfix ModelDb.GetEntry to add a namespace prefix and
+        // permanently cache the first GetEntry result per type. Calling GetId for a
+        // mod type before that mod's PatchAll runs would poison the cache with the
+        // un-prefixed id. Vanilla types never get a prefix, so computing their ids
+        // now is safe. Mod model placeholders are registered later, in ModelDb.Init
+        // (phase 1), where all mod GetEntry patches are already applied (PC parity).
+        ModelDbInitPatch.EnsureVanillaModelPlaceholdersPreRegistered();
+
         string path = GetAndroidModsDir();
         if (fileIo.DirectoryExists(path))
         {

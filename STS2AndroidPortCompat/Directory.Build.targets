@@ -1,0 +1,33 @@
+<Project>
+  <PropertyGroup>
+    <_CompatGitBranch Condition="'$(_CompatGitBranch)' == ''">unknown</_CompatGitBranch>
+    <_CompatGitCommit Condition="'$(_CompatGitCommit)' == ''">unknown</_CompatGitCommit>
+    <_CompatGitCommitSubject Condition="'$(_CompatGitCommitSubject)' == ''">unknown</_CompatGitCommitSubject>
+    <_CompatGitDirty Condition="'$(_CompatGitDirty)' == ''">unknown</_CompatGitDirty>
+    <_CompatBuildTimestampUtc Condition="'$(_CompatBuildTimestampUtc)' == ''">unknown</_CompatBuildTimestampUtc>
+    <InformationalVersion>1.0.0+$(_CompatGitCommit)</InformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitBranch</_Parameter1>
+      <_Parameter2>$(_CompatGitBranch)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitCommit</_Parameter1>
+      <_Parameter2>$(_CompatGitCommit)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitCommitSubject</_Parameter1>
+      <_Parameter2>$(_CompatGitCommitSubject)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitDirty</_Parameter1>
+      <_Parameter2>$(_CompatGitDirty)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BuildTimestampUtc</_Parameter1>
+      <_Parameter2>$(_CompatBuildTimestampUtc)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

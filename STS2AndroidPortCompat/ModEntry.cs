@@ -66,6 +66,7 @@ public static class ModEntry
             UnlockStateCompatPatches.Apply(_harmony);
             PlatformPatches.Apply(_harmony);
             ReleaseInfoPatches.Apply(_harmony);
+            SavePathPatches.Apply(_harmony);
 
             // Reference launcher's mobile/default settings + UI scale patches,
             // plus this port's Java companion settings bridge.

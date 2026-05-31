@@ -71,8 +71,12 @@ public static class LifecycleAndPerformancePatches
         _safePreloadStarted = true;
         PatchHelper.Log($"Android safe preload scheduled ({reason}).");
         // Godot Callable cannot marshal Task return values to Variant. Fire the
-        // async preload from a void callable instead of passing an async lambda.
-        Callable.From(() => _ = RunSafeDeferredPreloadAsync(reason, owner)).CallDeferred();
+        // async preload from a statement-bodied void callable instead of passing
+        // an async or expression-bodied Task-returning lambda.
+        Callable.From(() =>
+        {
+            _ = RunSafeDeferredPreloadAsync(reason, owner);
+        }).CallDeferred();
     }
 
     private static async Task RunSafeDeferredPreloadAsync(string reason, Node owner)

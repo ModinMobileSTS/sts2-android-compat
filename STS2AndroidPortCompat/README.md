@@ -74,7 +74,10 @@ instead of relying on Android-only `SettingsSave` fields in the game body.
 Quick-save/load compatibility now has a built-in retry patch in
 `Patches/QuickRestartPatches.cs`: when companion `quick_sl_enabled` is true, the
 pause menu gets an Android retry button unless an external Quick Restart UI mod
-is already loaded.
+is already loaded. The restart path waits for pending run-save work and awaits
+saved-run setup before `NGame.LoadRun()` so `MapSelectionSynchronizer` belongs to
+the new `RunState`; if a post-fadeout error still occurs, it attempts to fade
+back in before showing the error popup.
 
 Touch preview compatibility now has a first-pass patch in
 `Patches/MobileTapPreviewPatches.cs`: when companion `touch_lift_preview` is

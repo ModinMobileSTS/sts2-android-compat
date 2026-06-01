@@ -117,8 +117,10 @@ public static class QuickRestartPatches
 
     private static async Task QuickLoadInternalAsync()
     {
+        var fadeOutCompleted = false;
         try
         {
+            await WaitForCurrentRunSaveTaskAsync();
             var loadResult = SaveManager.Instance.LoadRunSave();
             if (!loadResult.Success || loadResult.SaveData == null)
             {
@@ -130,17 +132,61 @@ public static class QuickRestartPatches
             RunManager.Instance.ActionQueueSet.Reset();
             NRunMusicController.Instance?.StopMusic();
             await NGame.Instance.Transition.FadeOut();
+            fadeOutCompleted = true;
             RunManager.Instance.CleanUp();
-            RunManager.Instance.SetUpSavedSinglePlayer(runState, saveData);
+            await SetUpSavedSinglePlayerAsync(runState, saveData);
             InitializeReactionNetworking();
             await NGame.Instance.LoadRun(runState, saveData.PreFinishedRoom);
             await NGame.Instance.Transition.FadeIn();
+            fadeOutCompleted = false;
             PatchHelper.Log("Built-in Android quick restart completed.");
         }
         catch (Exception exception)
         {
             PatchHelper.Log($"Built-in Android quick restart failed: {exception}");
+            if (fadeOutCompleted)
+                await TryFadeInAfterQuickRestartFailureAsync();
             ShowError("Quick restart failed: " + exception.Message);
+        }
+    }
+
+    private static async Task SetUpSavedSinglePlayerAsync(RunState runState, SerializableRun saveData)
+    {
+        var method = typeof(RunManager).GetMethod("SetUpSavedSinglePlayer", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(RunState), typeof(SerializableRun) }, null);
+        if (method == null)
+            throw new MissingMethodException(typeof(RunManager).FullName, "SetUpSavedSinglePlayer");
+        var result = method.Invoke(RunManager.Instance, new object[] { runState, saveData });
+        if (result is Task task)
+            await task;
+    }
+
+    private static async Task WaitForCurrentRunSaveTaskAsync()
+    {
+        try
+        {
+            var saveTask = SaveManager.Instance.CurrentRunSaveTask;
+            if (saveTask == null)
+                return;
+            PatchHelper.Log("Built-in Android quick restart waiting for current run save task.");
+            await saveTask;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Built-in Android quick restart save wait failed; continuing with latest readable save: {exception.Message}");
+        }
+    }
+
+    private static async Task TryFadeInAfterQuickRestartFailureAsync()
+    {
+        try
+        {
+            var transition = NGame.Instance?.Transition;
+            if (transition != null)
+                await transition.FadeIn();
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Quick restart failure fade-in recovery failed: {exception.Message}");
         }
     }
 

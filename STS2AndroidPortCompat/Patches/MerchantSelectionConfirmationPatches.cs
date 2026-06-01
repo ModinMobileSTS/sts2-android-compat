@@ -310,7 +310,13 @@ public static class MerchantSelectionConfirmationPatches
 
     private static object GetField(object target, string name)
     {
-        return target?.GetType().GetField(name, InstanceFlags)?.GetValue(target);
+        for (var type = target?.GetType(); type != null; type = type.BaseType)
+        {
+            var field = type.GetField(name, InstanceFlags);
+            if (field != null)
+                return field.GetValue(target);
+        }
+        return null;
     }
 
     private static MerchantConfirmState GetState(NMerchantInventory inventory)

@@ -13,6 +13,13 @@ public static class AndroidSettingsMerge
     {
         "shader_compatibility_mode",
         "preload_enabled",
+        "preload_startup_common_enabled",
+        "preload_startup_main_menu_enabled",
+        "preload_menu_hotspots_enabled",
+        "preload_vfx_mode",
+        "preload_combat_code_enabled",
+        "preload_shader_mode",
+        "preload_runtime_enabled",
         "global_scale",
         "ui_font_size",
         "ui_font_scale_percent",

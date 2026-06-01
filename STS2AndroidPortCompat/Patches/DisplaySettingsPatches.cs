@@ -63,7 +63,7 @@ public static class DisplaySettingsPatches
         try
         {
             AndroidSettingsPatches.ApplyCompanionSettingsToRuntimeSave();
-            PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", PreloadManager.Enabled);
+            PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", true);
             var settings = SaveManager.Instance?.SettingsSave;
             if (settings != null)
                 NGame.ApplySyncSetting();
@@ -154,7 +154,7 @@ public static class DisplaySettingsPatches
         try
         {
             AndroidSettingsPatches.ApplyCompanionSettingsToRuntimeSave();
-            PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", PreloadManager.Enabled);
+            PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", true);
             ApplyAndroidScreenOrientationSetting();
             ApplyFontSizeSetting();
             ApplyDisplaySettingsPostfix();

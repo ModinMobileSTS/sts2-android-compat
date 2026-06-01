@@ -16,6 +16,7 @@ namespace STS2Mobile.Patches;
 public static class LifecycleAndPerformancePatches
 {
     private static bool _safePreloadStarted;
+    private static bool _startupResourcePreloadStarted;
 
     public static void Apply(Harmony harmony)
     {
@@ -26,6 +27,8 @@ public static class LifecycleAndPerformancePatches
         // Start a visible, serialized preload later from NMainMenu._Ready instead.
         PatchHelper.Log("Android startup Harmony overrides disabled; safe deferred preload will run after scene startup.");
         PatchHelper.Patch(harmony, typeof(NMainMenu), "_Ready", postfix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(MainMenuReadyPostfix)));
+        PatchHelper.Patch(harmony, typeof(PreloadManager), "LoadCommonAndMainMenuAssets", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadCommonAndMainMenuAssetsPrefix)));
+        PatchHelper.Patch(harmony, typeof(PreloadManager), "LoadAssetSets", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadAssetSetsPrefix)));
 
         var muteHandlerType = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.NMuteInBackgroundHandler");
         if (muteHandlerType != null)
@@ -42,7 +45,7 @@ public static class LifecycleAndPerformancePatches
     {
         try
         {
-            PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", PreloadManager.Enabled);
+            PreloadManager.Enabled = IsMasterPreloadEnabled();
             PatchHelper.Log($"Preload enabled from Android companion settings: {PreloadManager.Enabled}");
         }
         catch (Exception exception)
@@ -62,10 +65,10 @@ public static class LifecycleAndPerformancePatches
             return;
         if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
             return;
-        PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", PreloadManager.Enabled);
-        if (!PreloadManager.Enabled)
+        PreloadManager.Enabled = IsMasterPreloadEnabled();
+        if (!ShouldRunAnyStartupPreload())
         {
-            PatchHelper.Log($"Android safe preload not started ({reason}): preload_enabled=false.");
+            PatchHelper.Log($"Android safe preload not started ({reason}): startup preload settings disabled.");
             return;
         }
         _safePreloadStarted = true;
@@ -87,7 +90,19 @@ public static class LifecycleAndPerformancePatches
             await Task.Yield();
             await WaitForFramesAsync(2);
             loadingScreen = await ShowDeferredPreloadScreenAsync(owner);
-            await RunSerializedAndroidPreloadAsync(loadingScreen);
+            if (ShouldRunCommonMainMenuResourcePreload() && TryMarkStartupResourcePreloadStarted())
+                await RunSerializedAndroidPreloadAsync(loadingScreen);
+            if (IsCombatCodeWarmupEnabled())
+            {
+                loadingScreen?.SetStatus("Optimizing combat code...", "Preparing first attack hot paths", 0.9f);
+                AndroidStartupLoadingScreen.PrewarmCombatHotPaths();
+                await WaitForFramesAsync(1);
+            }
+            var vfxMode = GetVfxWarmupMode();
+            if (!string.Equals(vfxMode, "off", StringComparison.OrdinalIgnoreCase))
+                await AndroidStartupLoadingScreen.WarmupCriticalScenesAsync(loadingScreen, vfxMode);
+            if (IsMenuHotspotPreloadEnabled())
+                await WarmMainMenuHotspotsAsync(FindGameNode(owner), loadingScreen);
             if (loadingScreen != null)
             {
                 loadingScreen.SetStatus("Startup optimization complete", "Ready", 1f);
@@ -149,9 +164,18 @@ public static class LifecycleAndPerformancePatches
 
     public static bool LoadCommonAndMainMenuAssetsPrefix(ref Task __result)
     {
-        if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
+        if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase) || ShouldUseOriginalCommonMainMenuPreload())
             return true;
         __result = LoadCommonAndMainMenuAssetsAndroidAsync();
+        return false;
+    }
+
+    public static bool LoadAssetSetsPrefix(ref Task<AssetLoadingSession> __result, string name)
+    {
+        if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase) || ShouldAllowAssetSetPreload(name))
+            return true;
+        __result = Task.FromResult(AssetLoadingSession.Empty());
+        PatchHelper.Log($"Android preload skipped by preload settings: {name}");
         return false;
     }
 
@@ -204,15 +228,20 @@ public static class LifecycleAndPerformancePatches
 
     private static async Task LoadCommonAndMainMenuAssetsAndroidAsync()
     {
-        if (!PreloadManager.Enabled)
+        if (!ShouldRunAnyStartupPreload())
         {
             await Task.Yield();
-            PatchHelper.Log("Android common/main-menu preload skipped because preload_enabled is off.");
+            PatchHelper.Log("Android common/main-menu preload skipped by preload settings.");
             return;
         }
 
         try
         {
+            if (!TryMarkStartupResourcePreloadStarted())
+            {
+                PatchHelper.Log("Android common/main-menu preload already handled by another startup path.");
+                return;
+            }
             await RunSerializedAndroidPreloadAsync();
             LogResourceStats("android common/main-menu preload complete");
         }
@@ -267,8 +296,12 @@ public static class LifecycleAndPerformancePatches
     private static IReadOnlyList<string> CollectCommonAndMainMenuAssetPaths()
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
-        AddAssetSet(result, "CommonAssets", () => AssetSets.CommonAssets);
-        AddAssetSet(result, "MainMenuSet", () => AssetSets.MainMenuSet);
+        if (IsStartupCommonPreloadEnabled())
+            AddAssetSet(result, "CommonAssets", () => AssetSets.CommonAssets);
+        if (IsStartupMainMenuPreloadEnabled())
+            AddAssetSet(result, "MainMenuSet", () => AssetSets.MainMenuSet);
+        if (IsShaderResourcePreloadEnabled())
+            AddAssetSet(result, "ShaderResources", GetShaderWarmupPaths);
         return result.Where(path => !string.IsNullOrWhiteSpace(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
     }
 
@@ -301,10 +334,10 @@ public static class LifecycleAndPerformancePatches
         game.AddChild(startupLoadingScreen);
         await startupLoadingScreen.PresentAsync();
 
-        if (PreloadManager.Enabled)
+        if (ShouldRunStartupWarmupScreen())
         {
             AssetLoadingSession session = await StartAndroidStartupWarmupAsync();
-            await startupLoadingScreen.RunWarmup(session);
+            await startupLoadingScreen.RunWarmup(session, IsCombatCodeWarmupEnabled(), GetVfxWarmupMode());
             LogResourceStats("startup warmup complete");
         }
         else
@@ -343,6 +376,8 @@ public static class LifecycleAndPerformancePatches
 
     private static async Task WarmMainMenuHotspotsAsync(NGame game, AndroidStartupLoadingScreen startupLoadingScreen)
     {
+        if (game == null || !IsMenuHotspotPreloadEnabled())
+            return;
         try
         {
             object mainMenu = game.GetType().GetProperty("MainMenu", BindingFlags.Public | BindingFlags.Instance)?.GetValue(game);
@@ -501,6 +536,111 @@ public static class LifecycleAndPerformancePatches
     }
 
     public static bool MuteProcessPrefix() => IsAudioCompatibilityMode();
+
+    private static bool IsMasterPreloadEnabled() => AndroidSettingsBridge.GetBool("preload_enabled", true);
+
+    private static bool IsStartupCommonPreloadEnabled() => IsMasterPreloadEnabled() && AndroidSettingsBridge.GetBool("preload_startup_common_enabled", true);
+
+    private static bool IsStartupMainMenuPreloadEnabled() => IsMasterPreloadEnabled() && AndroidSettingsBridge.GetBool("preload_startup_main_menu_enabled", true);
+
+    private static bool IsMenuHotspotPreloadEnabled() => IsMasterPreloadEnabled() && AndroidSettingsBridge.GetBool("preload_menu_hotspots_enabled", false);
+
+    private static bool IsCombatCodeWarmupEnabled() => IsMasterPreloadEnabled() && AndroidSettingsBridge.GetBool("preload_combat_code_enabled", false);
+
+    private static bool IsRuntimePreloadEnabled() => IsMasterPreloadEnabled() && AndroidSettingsBridge.GetBool("preload_runtime_enabled", true);
+
+    private static string GetVfxWarmupMode()
+    {
+        if (!IsMasterPreloadEnabled())
+            return "off";
+        var value = AndroidSettingsBridge.GetString("preload_vfx_mode", "off").Trim().ToLowerInvariant();
+        return value == "hot" || value == "full" ? value : "off";
+    }
+
+    private static string GetShaderWarmupMode()
+    {
+        if (!IsMasterPreloadEnabled())
+            return "off";
+        var value = AndroidSettingsBridge.GetString("preload_shader_mode", "off").Trim().ToLowerInvariant();
+        return value == "load_resources" ? value : "off";
+    }
+
+    private static bool IsShaderResourcePreloadEnabled() => GetShaderWarmupMode() == "load_resources";
+
+    private static bool ShouldRunCommonMainMenuResourcePreload() => IsStartupCommonPreloadEnabled() || IsStartupMainMenuPreloadEnabled() || IsShaderResourcePreloadEnabled();
+
+    private static bool TryMarkStartupResourcePreloadStarted()
+    {
+        if (_startupResourcePreloadStarted)
+            return false;
+        _startupResourcePreloadStarted = true;
+        return true;
+    }
+
+    private static bool ShouldUseOriginalCommonMainMenuPreload()
+    {
+        return IsMasterPreloadEnabled()
+            && IsStartupCommonPreloadEnabled()
+            && IsStartupMainMenuPreloadEnabled()
+            && !IsShaderResourcePreloadEnabled();
+    }
+
+    private static bool ShouldRunStartupWarmupScreen() => IsMasterPreloadEnabled() && (IsCombatCodeWarmupEnabled() || GetVfxWarmupMode() != "off");
+
+    private static bool ShouldRunAnyStartupPreload() => ShouldRunCommonMainMenuResourcePreload() || ShouldRunStartupWarmupScreen() || IsMenuHotspotPreloadEnabled();
+
+    private static bool ShouldAllowAssetSetPreload(string name)
+    {
+        if (!IsMasterPreloadEnabled())
+            return false;
+        if (string.Equals(name, "Common", StringComparison.Ordinal))
+            return ShouldRunCommonMainMenuResourcePreload();
+        if (string.Equals(name, "MainMenu", StringComparison.Ordinal))
+            return IsStartupMainMenuPreloadEnabled();
+        if (string.Equals(name, "MainMenuEssentials", StringComparison.Ordinal) || string.Equals(name, "IntroLogo", StringComparison.Ordinal))
+            return true;
+        return IsRuntimePreloadEnabled();
+    }
+
+    private static IEnumerable<string> GetShaderWarmupPaths()
+    {
+        return new[]
+        {
+            "res://shaders/hsv.gdshader",
+            "res://shaders/dark_blur.gdshader",
+            "res://shaders/radial_blur.gdshader",
+            "res://shaders/doom_overlay.gdshader",
+            "res://shaders/vfx/distortion/vfx_screen_distortion_outward_shader.gdshader",
+            "res://shaders/vfx/scream/vfx_scream_distortion_polar_shader.gdshader",
+            "res://shaders/vfx/vfx_water_reflection_post.gdshader",
+            "res://shaders/vfx/the_insatiable_sand_fall_2.gdshader",
+            "res://shaders/blur/canvas_group_mask_blur.gdshader",
+            "res://shaders/overlay_blend.gdshader",
+            "res://shaders/mobile_compat/dark_blur_compat.gdshader",
+            "res://shaders/mobile_compat/radial_blur_compat.gdshader",
+            "res://shaders/mobile_compat/doom_overlay_compat.gdshader",
+            "res://shaders/mobile_compat/screen_distortion_compat.gdshader",
+            "res://shaders/mobile_compat/scream_distortion_compat.gdshader",
+            "res://shaders/mobile_compat/water_reflection_post_compat.gdshader",
+            "res://shaders/mobile_compat/sand_fall_post_compat.gdshader",
+            "res://shaders/mobile_compat/canvas_group_mask_blur_compat.gdshader",
+            "res://shaders/mobile_compat/overlay_blend_compat.gdshader",
+        };
+    }
+
+    private static NGame FindGameNode(Node owner)
+    {
+        if (owner is NGame direct)
+            return direct;
+        var current = owner;
+        while (current != null)
+        {
+            if (current is NGame game)
+                return game;
+            current = current.GetParent();
+        }
+        return NGame.Instance;
+    }
 
     public static bool MuteNotificationPrefix(object __instance, int what)
     {

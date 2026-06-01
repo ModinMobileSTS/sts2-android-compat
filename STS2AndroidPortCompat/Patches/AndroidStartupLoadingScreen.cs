@@ -60,7 +60,7 @@ public partial class AndroidStartupLoadingScreen : Control
         UpdateOverallProgress(progress);
     }
 
-    public async Task RunWarmup(AssetLoadingSession session)
+    public async Task RunWarmup(AssetLoadingSession session, bool prewarmCombatCode = true, string vfxMode = "full")
     {
         EnsureUiBuilt();
         UpdateSessionProgress(session);
@@ -70,12 +70,15 @@ public partial class AndroidStartupLoadingScreen : Control
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         }
         UpdateSessionProgress(session);
-        _titleLabel.Text = "Optimizing combat code...";
-        _detailsLabel.Text = "Preparing first attack hot paths";
-        UpdateOverallProgress(0.88f);
-        TryPrewarmCombatHotPaths();
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        await WarmupCriticalScenesAsync();
+        if (prewarmCombatCode)
+        {
+            _titleLabel.Text = "Optimizing combat code...";
+            _detailsLabel.Text = "Preparing first attack hot paths";
+            UpdateOverallProgress(0.88f);
+            PrewarmCombatHotPaths();
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        }
+        await WarmupCriticalScenesAsync(this, vfxMode);
         _titleLabel.Text = "Startup optimization complete";
         _detailsLabel.Text = "Launching main menu";
         UpdateOverallProgress(1f);
@@ -242,30 +245,38 @@ public partial class AndroidStartupLoadingScreen : Control
         await ToSignal(timer, SceneTreeTimer.SignalName.Timeout);
     }
 
-    private async Task WarmupCriticalScenesAsync()
+    public static async Task WarmupCriticalScenesAsync(AndroidStartupLoadingScreen loadingScreen, string mode)
     {
-        string[] warmupScenePaths = GetWarmupScenePaths();
+        string[] warmupScenePaths = GetWarmupScenePaths(mode);
         if (warmupScenePaths.Length == 0)
         {
-            UpdateOverallProgress(1f);
+            loadingScreen?.UpdateOverallProgress(1f);
             return;
         }
 
+        var tree = (loadingScreen?.GetTree() ?? (Engine.GetMainLoop() as SceneTree));
         for (int i = 0; i < warmupScenePaths.Length; i++)
         {
             string path = warmupScenePaths[i];
             float progress = 0.9f + (float)i / warmupScenePaths.Length * SceneWarmupWeight;
-            _titleLabel.Text = "Compiling combat effects...";
-            _detailsLabel.Text = $"{i + 1}/{warmupScenePaths.Length}: {GetSceneDisplayName(path)}";
-            UpdateOverallProgress(progress);
+            if (loadingScreen != null)
+            {
+                loadingScreen._titleLabel.Text = "Compiling combat effects...";
+                loadingScreen._detailsLabel.Text = $"{i + 1}/{warmupScenePaths.Length}: {GetSceneDisplayName(path)}";
+                loadingScreen.UpdateOverallProgress(progress);
+            }
 
             try
             {
                 PackedScene packedScene = ResourceLoader.Load<PackedScene>(path, null, ResourceLoader.CacheMode.Ignore);
                 if (packedScene == null)
                 {
-                    _detailsLabel.Text = $"Skipped: {GetSceneDisplayName(path)}";
-                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    if (loadingScreen != null)
+                        loadingScreen._detailsLabel.Text = $"Skipped: {GetSceneDisplayName(path)}";
+                    if (tree != null)
+                        await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                    else
+                        await Task.Yield();
                     continue;
                 }
                 Node node = packedScene.Instantiate<Node>(PackedScene.GenEditState.Disabled);
@@ -275,9 +286,12 @@ public partial class AndroidStartupLoadingScreen : Control
             {
                 PatchHelper.Log($"Startup VFX warmup skipped {path}: {exception.Message}");
             }
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            if (tree != null)
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            else
+                await Task.Yield();
         }
-        UpdateOverallProgress(1f);
+        loadingScreen?.UpdateOverallProgress(1f);
     }
 
     private void UpdateSessionProgress(AssetLoadingSession session)
@@ -304,13 +318,18 @@ public partial class AndroidStartupLoadingScreen : Control
         UpdateOverallProgress(snapshot.Progress * 0.8f);
     }
 
-    private static string[] GetWarmupScenePaths()
+    private static string[] GetWarmupScenePaths(string mode)
     {
+        if (string.Equals(mode, "off", StringComparison.OrdinalIgnoreCase))
+            return Array.Empty<string>();
         var paths = new HashSet<string>(HighPriorityWarmupPaths);
-        foreach (string path in GetAllVfxScenePaths())
+        if (string.Equals(mode, "full", StringComparison.OrdinalIgnoreCase))
         {
-            if (IsWarmupScenePath(path))
-                paths.Add(path);
+            foreach (string path in GetAllVfxScenePaths())
+            {
+                if (IsWarmupScenePath(path))
+                    paths.Add(path);
+            }
         }
         return paths.OrderBy(GetWarmupPriority).ThenBy(path => path, StringComparer.Ordinal).ToArray();
     }
@@ -378,7 +397,7 @@ public partial class AndroidStartupLoadingScreen : Control
         label.AddThemeConstantOverride("shadow_offset_y", 1);
     }
 
-    private static void TryPrewarmCombatHotPaths()
+    public static void PrewarmCombatHotPaths()
     {
         if (_combatHotPathsPrewarmed)
             return;

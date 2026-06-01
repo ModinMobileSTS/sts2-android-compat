@@ -268,6 +268,13 @@ public static class AndroidInGameSettingsPatches
 
         AddHeader(content, T("系统 / 兼容", "System / Compatibility"));
         AddSwitchRow(content, "preload_enabled", T("启用预加载", "Enable preload"), true, enabled => PreloadManager.Enabled = enabled);
+        AddSwitchRow(content, "preload_startup_common_enabled", T("启动通用资源", "Startup common resources"), true, null);
+        AddSwitchRow(content, "preload_startup_main_menu_enabled", T("主菜单页面资源", "Main menu resources"), true, null);
+        AddSwitchRow(content, "preload_menu_hotspots_enabled", T("常用菜单预热", "Menu hotspot warmup"), false, null);
+        AddStringPaginatorRow(content, "preload_vfx_mode", T("VFX 预热", "VFX warmup"), new[] { ("off", T("关闭", "Off")), ("hot", T("高频", "High priority")), ("full", T("全部", "All")) }, "off", null);
+        AddSwitchRow(content, "preload_combat_code_enabled", T("战斗代码预热", "Combat code warmup"), false, null);
+        AddStringPaginatorRow(content, "preload_shader_mode", T("Shader 预热", "Shader warmup"), new[] { ("off", T("关闭", "Off")), ("load_resources", T("加载资源", "Load resources")) }, "off", null);
+        AddSwitchRow(content, "preload_runtime_enabled", T("跑图 / 房间预加载", "Run / room preloading"), true, null);
         AddSwitchRow(content, "audio_compatibility_mode", T("声音兼容模式", "Audio compatibility mode"), false, null);
         AddSwitchRow(content, "android_volume_up_soft_keyboard", T("音量上键打开软键盘", "Volume up opens keyboard"), false, null);
         AddSwitchRow(content, "show_mobile_emoji_button", T("显示联机表情按钮", "Show multiplayer emoji button"), true, null);

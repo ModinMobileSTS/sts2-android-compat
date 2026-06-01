@@ -17,8 +17,8 @@ namespace STS2Mobile.Patches;
 /// <summary>
 /// Adds the reference Android port's second-tap purchase confirmation to the
 /// merchant screen.  The imported PC scene has no ConfirmButton node, so the
-/// compat layer creates one at runtime and intercepts NMerchantSlot.OnSelected
-/// before it immediately buys the selected item.
+/// compat layer creates one at runtime and intercepts the merchant slot purchase
+/// entrypoint before it immediately buys the selected item.
 /// </summary>
 public static class MerchantSelectionConfirmationPatches
 {
@@ -39,7 +39,10 @@ public static class MerchantSelectionConfirmationPatches
         PatchHelper.Patch(harmony, typeof(NMerchantInventory), "OnActiveScreenUpdated", postfix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(RefreshInventoryPostfix)));
         PatchHelper.Patch(harmony, typeof(NMerchantSlot), "_GuiInput", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotGuiInputPrefix)));
         PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnMouseReleased", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotMouseReleasedPrefix)));
+        // v0.103.2 names the private slot entrypoint OnReleased; v0.106.1 renamed it OnSelected.
+        // Patch both names so the same confirmation guard matches the original game body in use.
         PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnSelected", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotSelectedPrefix)));
+        PatchHelper.Patch(harmony, typeof(NMerchantSlot), "OnReleased", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotSelectedPrefix)));
         PatchMerchantPurchaseMethod(harmony, typeof(NMerchantCard));
         PatchMerchantPurchaseMethod(harmony, typeof(NMerchantRelic));
         PatchMerchantPurchaseMethod(harmony, typeof(NMerchantPotion));

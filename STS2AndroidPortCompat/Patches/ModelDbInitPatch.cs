@@ -50,6 +50,10 @@ public static class ModelDbInitPatch
     private static bool _phase2Completed;
     private static FieldInfo _modelIdBackingField;
     private static bool _loggedModelIdSeedFailure;
+    private static bool _containsPatched;
+    private static int _modInitializationContainsShieldDepth;
+    private static readonly Dictionary<ModelId, Type> _preRegisteredPlaceholderOwnersById = new();
+    private static readonly HashSet<Type> _loggedModInitializationContainsShieldTypes = new();
 
     public static void Apply(Harmony harmony)
     {
@@ -87,6 +91,8 @@ public static class ModelDbInitPatch
             PatchHelper.Log($"FAILED ModelDb.Init: {exception}");
         }
 
+        PatchContains(harmony);
+
         try
         {
             var target = typeof(OneTimeInitialization).GetMethod("ExecuteEssential", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
@@ -105,8 +111,34 @@ public static class ModelDbInitPatch
         }
     }
 
-    public static bool ContainsPrefix(ref bool __result)
+    public static void PatchContains(Harmony harmony)
     {
+        if (_containsPatched)
+            return;
+
+        try
+        {
+            var containsMethod = typeof(ModelDb).GetMethod("Contains", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null, new[] { typeof(Type) }, null);
+            var containsPrefix = typeof(ModelDbInitPatch).GetMethod(nameof(ContainsPrefix), BindingFlags.Public | BindingFlags.Static);
+            if (containsMethod == null || containsPrefix == null)
+            {
+                PatchHelper.Log("ModelDbInitPatch: ModelDb.Contains(Type) not found; constructors may detect pre-registered placeholders.");
+                return;
+            }
+
+            harmony.Patch(containsMethod, prefix: new HarmonyMethod(containsPrefix));
+            _containsPatched = true;
+            PatchHelper.Log("Patched ModelDb.Contains(Type) for Android constructor-phase and mod-initializer placeholder safety.");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"FAILED ModelDb.Contains(Type): {exception}");
+        }
+    }
+
+    public static bool ContainsPrefix(Type __0, ref bool __result)
+    {
+        var type = __0;
         // During the constructor phase the placeholder objects are already present
         // in _contentById. Vanilla AbstractModel..ctor throws DuplicateModelException
         // if ModelDb.Contains(type) is true, so we suppress Contains while running
@@ -116,6 +148,77 @@ public static class ModelDbInitPatch
             __result = false;
             return false;
         }
+
+        // During user MOD initializers, Android's early vanilla placeholder pass is
+        // the main intentional PC-ordering difference. A MOD may construct a
+        // temporary/canonical-looking model object before ModelDb.Init; on PC that
+        // sees an empty ModelDb and succeeds, but on Android ModelDb.Contains(type)
+        // can hit an early vanilla placeholder with the same derived id (for
+        // example a MOD card class named Taunt -> CARD.TAUNT). Hide only those
+        // early placeholder hits for non-game-assembly model types. Exact already
+        // tracked types and post-ModelDb behavior are left unchanged.
+        if (ShouldHideEarlyPlaceholderFromModInitializer(type))
+        {
+            __result = false;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ShouldHideEarlyPlaceholderFromModInitializer(Type type)
+    {
+        lock (_phaseLock)
+        {
+            if (_modInitializationContainsShieldDepth <= 0 || _phase2Completed)
+                return false;
+        }
+
+        if (type == null || !type.IsSubclassOf(typeof(AbstractModel)))
+            return false;
+
+        // Never hide vanilla/game assembly checks: those early placeholders are
+        // deliberately visible to keep Android/Mono cctor-triggered vanilla lookups
+        // such as UnlockState -> ModelDb.AllEncounters safe.
+        if (type.Assembly == typeof(AbstractModel).Assembly)
+            return false;
+
+        ModelId id;
+        try
+        {
+            id = ModelDb.GetId(type);
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"ModelDbInitPatch: mod-initializer Contains shield could not compute id for {type.FullName}: {GetRootException(exception).Message}");
+            return false;
+        }
+
+        Type placeholderOwner;
+        lock (_phaseLock)
+        {
+            if (!_preRegisteredPlaceholderOwnersById.TryGetValue(id, out placeholderOwner))
+                return false;
+            if (placeholderOwner == type)
+                return false;
+        }
+
+        // The shield is intentionally narrow: only early vanilla placeholders are
+        // hidden from MOD types. Once MOD placeholders are registered in phase 1,
+        // the initializer shield has already ended, and real duplicate checks stay
+        // visible.
+        if (placeholderOwner?.Assembly != typeof(AbstractModel).Assembly)
+            return false;
+
+        lock (_phaseLock)
+        {
+            if (_loggedModInitializationContainsShieldTypes.Add(type))
+            {
+                PatchHelper.Log(
+                    $"ModelDbInitPatch: hiding early vanilla placeholder Contains hit during MOD initialization for {type.FullName} (id={id}, placeholder={placeholderOwner.FullName}).");
+            }
+        }
+
         return true;
     }
 
@@ -251,6 +354,22 @@ public static class ModelDbInitPatch
     }
 
     /// <summary>
+    /// Temporarily hides early vanilla placeholder duplicate hits from user MOD
+    /// model constructors while ModManager calls MOD initializers. This restores PC
+    /// behavior only for this narrow window; Android still exposes vanilla
+    /// placeholders to vanilla early reads and uses normal duplicate checks after
+    /// ModelDb.Init starts.
+    /// </summary>
+    public static IDisposable BeginModInitializationContainsShield()
+    {
+        lock (_phaseLock)
+        {
+            _modInitializationContainsShieldDepth++;
+        }
+        return ModInitializationContainsShieldScope.Instance;
+    }
+
+    /// <summary>
     /// Pre-registers placeholders for VANILLA model types only. Safe to call before
     /// mod GetEntry prefix patches matter, because vanilla types are never prefixed.
     /// Idempotent: already-tracked types are skipped, so calling it both before mod
@@ -339,6 +458,8 @@ public static class ModelDbInitPatch
                     setItemMethod.Invoke(contentById, new[] { id, model });
                     _preRegisteredTypeObjects[type] = model;
                     _preRegisteredTypeOrder.Add(type);
+                    if (id is ModelId modelId)
+                        _preRegisteredPlaceholderOwnersById[modelId] = type;
                     preRegistered++;
                 }
                 catch (Exception exception)
@@ -383,24 +504,8 @@ public static class ModelDbInitPatch
         ClearPreRegisteredModelInstanceCaches("before constructor phase");
         ClearModelDbDerivedCaches("before constructor phase");
 
-        var modelDbType = typeof(ModelDb);
-        var containsHarmony = new Harmony("com.wsdx233.sts2.android_port_compat.modeldb_contains");
-        var containsMethod = modelDbType.GetMethod("Contains", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null, new[] { typeof(Type) }, null);
-        var containsPrefix = typeof(ModelDbInitPatch).GetMethod(nameof(ContainsPrefix), BindingFlags.Public | BindingFlags.Static);
-        var containsPatched = false;
-
         try
         {
-            if (containsMethod != null && containsPrefix != null)
-            {
-                containsHarmony.Patch(containsMethod, prefix: new HarmonyMethod(containsPrefix));
-                containsPatched = true;
-            }
-            else
-            {
-                PatchHelper.Log("ModelDbInitPatch: ModelDb.Contains(Type) not found; constructors may detect pre-registered placeholders.");
-            }
-
             PatchHelper.Log($"ModelDbInitPatch phase 2: running static and instance constructors for {types.Count} pre-registered model types.");
             _suppressContains = true;
             var successCount = 0;
@@ -442,10 +547,6 @@ public static class ModelDbInitPatch
         finally
         {
             _suppressContains = false;
-            if (containsPatched && containsMethod != null && containsPrefix != null)
-            {
-                containsHarmony.Unpatch(containsMethod, containsPrefix);
-            }
             ClearPreRegisteredModelInstanceCaches("after constructor phase");
             ClearModelDbDerivedCaches("after constructor phase");
             lock (_phaseLock)
@@ -703,6 +804,24 @@ public static class ModelDbInitPatch
         var dotIndex = namespaceName.IndexOf('.');
         var rootNamespace = dotIndex < 0 ? namespaceName : namespaceName[..dotIndex];
         return rootNamespace.ToUpperInvariant() + "-";
+    }
+
+    private sealed class ModInitializationContainsShieldScope : IDisposable
+    {
+        public static readonly ModInitializationContainsShieldScope Instance = new();
+
+        private ModInitializationContainsShieldScope()
+        {
+        }
+
+        public void Dispose()
+        {
+            lock (_phaseLock)
+            {
+                if (_modInitializationContainsShieldDepth > 0)
+                    _modInitializationContainsShieldDepth--;
+            }
+        }
     }
 
     private static Exception GetRootException(Exception exception)

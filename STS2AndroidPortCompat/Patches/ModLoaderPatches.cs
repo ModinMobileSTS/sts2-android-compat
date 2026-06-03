@@ -25,10 +25,11 @@ public static class ModLoaderPatches
         PatchHelper.Log("Mod loader compatibility patches enabled: Android local-mod scan + no Steam Workshop scan.");
     }
 
-    public static bool InitializePrefix(IModManagerFileIo fileIo, ModSettings settings, object gameVersion = null)
+    public static bool InitializePrefix(IModManagerFileIo fileIo, ModSettings settings, object[] __args = null)
     {
         try
         {
+            var gameVersion = __args != null && __args.Length > 2 ? __args[2] : null;
             RunAndroidModInitialization(fileIo, settings, gameVersion);
         }
         catch (Exception exception)
@@ -82,7 +83,10 @@ public static class ModLoaderPatches
         InvokeStatic("SortModList", settings?.ModList ?? new List<SettingsSaveMod>());
         foreach (var mod in GetMods().ToArray())
         {
-            InvokeStatic("TryLoadMod", mod);
+            using (ModelDbInitPatch.BeginModInitializationContainsShield())
+            {
+                InvokeStatic("TryLoadMod", mod);
+            }
         }
 
         if (ModManager.IsRunningModded())

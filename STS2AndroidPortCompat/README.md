@@ -12,17 +12,20 @@ Build and stage into the Android shell:
 tools/android/build-port-mod.sh
 ```
 
-Compile against the old launcher/runtime reference DLLs (default):
+Compile against configured reference DLLs (from the parent repository `.env`):
 
 ```bash
-../s2/.local/dotnet/dotnet build port-mod/STS2AndroidPortCompat/STS2Mobile.csproj -v:q
+REFERENCE_FLAVOR=original-v0.106.1 tools/android/build-port-mod.sh
 ```
 
 Compile against the original PC `sts2.dll` to catch accidental dependencies on
-old-port-only game-source additions:
+old-port-only game-source additions. When running `dotnet` directly, pass the
+reference directory explicitly:
 
 ```bash
-../s2/.local/dotnet/dotnet build port-mod/STS2AndroidPortCompat/STS2Mobile.csproj -p:ReferenceFlavor=original -v:q
+"$DOTNET_BIN" build port-mod/STS2AndroidPortCompat/STS2Mobile.csproj \
+  -p:ReferenceFlavor=original \
+  -p:CompatReferenceDir="$STS2_ORIGINAL_V103_REFERENCE_DIR" -v:q
 ```
 
 

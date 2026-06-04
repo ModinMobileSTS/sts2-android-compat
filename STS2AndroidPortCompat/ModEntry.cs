@@ -95,6 +95,7 @@ public static class ModEntry
             AndroidInputCompatPatches.Apply(_harmony);
             MobileSelectionConfirmationPatches.Apply(_harmony);
             MerchantSelectionConfirmationPatches.Apply(_harmony);
+            MobileTooltipPatches.Apply(_harmony);
             MobileTapPreviewPatches.Apply(_harmony);
             MobileHandLayoutPatches.Apply(_harmony);
             IntentAnimationPatches.Apply(_harmony);

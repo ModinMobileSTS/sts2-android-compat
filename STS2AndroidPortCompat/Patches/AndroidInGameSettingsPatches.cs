@@ -256,6 +256,17 @@ public static class AndroidInGameSettingsPatches
             if (!enabled)
                 MobileTapPreviewPatches.ClearAllPinned();
         });
+        AddStringPaginatorRow(content, "mobile_tooltip_mode", T("Tooltip 显示", "Tooltip display"),
+            new[]
+            {
+                ("immediate", T("立即显示", "Immediate")),
+                ("long_press", T("长按 1 秒", "Long press 1s")),
+                ("hidden", T("隐藏", "Hidden")),
+            }, "immediate", _ =>
+            {
+                AndroidSettingsBridge.SetInt("mobile_tooltip_long_press_ms", 1000);
+                MobileTooltipPatches.RefreshModeFromSettings();
+            });
         AddStringPaginatorRow(content, "touch_lift_retap_action", T("抬起后二次点击操作", "Touch-lift re-tap action"),
             new[]
             {

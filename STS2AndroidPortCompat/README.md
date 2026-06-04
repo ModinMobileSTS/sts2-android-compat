@@ -82,6 +82,12 @@ saved-run setup before `NGame.LoadRun()` so `MapSelectionSynchronizer` belongs t
 the new `RunState`; if a post-fadeout error still occurs, it attempts to fade
 back in before showing the error popup.
 
+Mobile tooltip compatibility is handled by `Patches/MobileTooltipPatches.cs`.
+Companion `mobile_tooltip_mode` defaults to `immediate` (PC behavior), can be
+set to `long_press` to hide hover tooltips until the same touch is held for
+`mobile_tooltip_long_press_ms` (default 1000 ms), or `hidden` to suppress normal
+hover tooltips while keeping explicit inspect/detail screens visible.
+
 Touch preview compatibility now has a first-pass patch in
 `Patches/MobileTapPreviewPatches.cs`: when companion `touch_lift_preview` is
 true, tapping a playable hand card pins its hover preview; a second tap follows

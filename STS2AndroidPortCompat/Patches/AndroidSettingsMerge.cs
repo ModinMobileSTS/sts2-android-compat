@@ -29,6 +29,8 @@ public static class AndroidSettingsMerge
         "touch_lift_retap_action",
         "mobile_selection_confirmation",
         "mobile_two_finger_inspect",
+        "mobile_tooltip_mode",
+        "mobile_tooltip_long_press_ms",
         "show_mobile_emoji_button",
         "lan_multiplayer_enabled",
         "max_multiplayer_players",

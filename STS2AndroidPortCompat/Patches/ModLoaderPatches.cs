@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Debug;
 using MegaCrit.Sts2.Core.Modding;
@@ -20,23 +21,81 @@ public static class ModLoaderPatches
 {
     public static void Apply(Harmony harmony)
     {
-        PatchHelper.Patch(harmony, typeof(ModManager), "Initialize", prefix: PatchHelper.Method(typeof(ModLoaderPatches), nameof(InitializePrefix)));
-        PatchHelper.Patch(harmony, typeof(ModManager), "ReadSteamMods", prefix: PatchHelper.Method(typeof(ModLoaderPatches), nameof(ReadSteamModsPrefix)));
+        PatchInitialize(harmony);
+        PatchReadSteamMods(harmony);
         PatchHelper.Log("Mod loader compatibility patches enabled: Android local-mod scan + no Steam Workshop scan.");
+    }
+
+    private static void PatchInitialize(Harmony harmony)
+    {
+        try
+        {
+            var target = typeof(ModManager).GetMethod("Initialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            if (target == null)
+            {
+                PatchHelper.Log($"SKIPPED {typeof(ModManager).FullName}.Initialize: method not found");
+                return;
+            }
+
+            var prefix = typeof(Task).IsAssignableFrom(target.ReturnType)
+                ? PatchHelper.Method(typeof(ModLoaderPatches), nameof(InitializeAsyncPrefix))
+                : PatchHelper.Method(typeof(ModLoaderPatches), nameof(InitializePrefix));
+            harmony.Patch(target, prefix: new HarmonyMethod(prefix));
+            PatchHelper.Log($"Patched {typeof(ModManager).FullName}.Initialize (return={target.ReturnType.Name})");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"FAILED {typeof(ModManager).FullName}.Initialize: {exception}");
+        }
+    }
+
+    private static void PatchReadSteamMods(Harmony harmony)
+    {
+        try
+        {
+            var target = typeof(ModManager).GetMethod("ReadSteamMods", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            if (target == null)
+            {
+                PatchHelper.Log($"SKIPPED {typeof(ModManager).FullName}.ReadSteamMods: method not found");
+                return;
+            }
+
+            var prefix = typeof(Task).IsAssignableFrom(target.ReturnType)
+                ? PatchHelper.Method(typeof(ModLoaderPatches), nameof(ReadSteamModsAsyncPrefix))
+                : PatchHelper.Method(typeof(ModLoaderPatches), nameof(ReadSteamModsPrefix));
+            harmony.Patch(target, prefix: new HarmonyMethod(prefix));
+            PatchHelper.Log($"Patched {typeof(ModManager).FullName}.ReadSteamMods (return={target.ReturnType.Name})");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"FAILED {typeof(ModManager).FullName}.ReadSteamMods: {exception}");
+        }
     }
 
     public static bool InitializePrefix(IModManagerFileIo fileIo, ModSettings settings, object[] __args = null)
     {
+        RunAndroidModInitializationSafely(fileIo, settings, __args);
+        return false;
+    }
+
+    public static bool InitializeAsyncPrefix(IModManagerFileIo fileIo, ModSettings settings, ref Task __result, object[] __args = null)
+    {
+        RunAndroidModInitializationSafely(fileIo, settings, __args);
+        __result = Task.CompletedTask;
+        return false;
+    }
+
+    private static void RunAndroidModInitializationSafely(IModManagerFileIo fileIo, ModSettings settings, object[] args)
+    {
         try
         {
-            var gameVersion = __args != null && __args.Length > 2 ? __args[2] : null;
+            var gameVersion = args != null && args.Length > 2 ? args[2] : null;
             RunAndroidModInitialization(fileIo, settings, gameVersion);
         }
         catch (Exception exception)
         {
             PatchHelper.Log($"[Mods] Android ModManager.Initialize replacement failed: {exception}");
         }
-        return false;
     }
 
     private static void RunAndroidModInitialization(IModManagerFileIo fileIo, ModSettings settings, object gameVersion)
@@ -80,6 +139,7 @@ public static class ModLoaderPatches
             return;
         }
 
+        InvokeStaticIfExists("RemoveDisabledMods");
         InvokeStatic("SortModList", settings?.ModList ?? new List<SettingsSaveMod>());
         foreach (var mod in GetMods().ToArray())
         {
@@ -131,6 +191,12 @@ public static class ModLoaderPatches
         if (method == null)
             throw new MissingMethodException(typeof(ModManager).FullName, name);
         return method.Invoke(null, args);
+    }
+
+    private static object InvokeStaticIfExists(string name, params object[] args)
+    {
+        var method = typeof(ModManager).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static);
+        return method == null ? null : method.Invoke(null, args);
     }
 
     private static Assembly InvokeAssemblyResolve(object sender, ResolveEventArgs args)
@@ -257,4 +323,10 @@ public static class ModLoaderPatches
     }
 
     public static bool ReadSteamModsPrefix() => false;
+
+    public static bool ReadSteamModsAsyncPrefix(ref Task __result)
+    {
+        __result = Task.CompletedTask;
+        return false;
+    }
 }

@@ -2,7 +2,7 @@
   "schema": 1,
   "pack_id": "sts2-android-compat-v0.107.0-beta",
   "display_name": "STS2 Android Compatibility beta for v0.107.0",
-  "compat_version": "0.3.0-beta.1070",
+  "compat_version": "0.3.1-beta.1070",
   "channel": "beta",
   "target_game": {
     "version": "v0.107.0",
@@ -24,6 +24,7 @@
   "notes": [
     "Built from the v0.106.1 beta Android compat patcher branch after diffing the v0.107.0 source drop.",
     "v0.107.0 keeps the patched public method names used by the Android compatibility layer; source diff mainly changes NPlayerHand queued-holder bookkeeping and PreloadManager asset discovery.",
-    "Compile gate uses ReferenceFlavor=original-v0.107.0."
+    "Compile gate uses ReferenceFlavor=original-v0.107.0.",
+    "v0.107.0 changed ModManager.Initialize/ReadSteamMods to async Task; the Android replacement prefix returns Task.CompletedTask when skipping the original scanner."
   ]
 }

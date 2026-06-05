@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
@@ -152,12 +153,27 @@ public static class QuickRestartPatches
 
     private static async Task SetUpSavedSinglePlayerAsync(RunState runState, SerializableRun saveData)
     {
-        var method = typeof(RunManager).GetMethod("SetUpSavedSinglePlayer", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(RunState), typeof(SerializableRun) }, null);
-        if (method == null)
-            throw new MissingMethodException(typeof(RunManager).FullName, "SetUpSavedSinglePlayer");
-        var result = method.Invoke(RunManager.Instance, new object[] { runState, saveData });
-        if (result is Task task)
-            await task;
+        foreach (var methodName in new[] { "SetUpSavedSingleplayer", "SetUpSavedSinglePlayer" })
+        {
+            var method = typeof(RunManager).GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(RunState), typeof(SerializableRun) }, null);
+            if (method == null)
+                continue;
+            PatchHelper.Log($"Built-in Android quick restart invoking RunManager.{method.Name}.");
+            object result;
+            try
+            {
+                result = method.Invoke(RunManager.Instance, new object[] { runState, saveData });
+            }
+            catch (TargetInvocationException exception) when (exception.InnerException != null)
+            {
+                ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
+                throw;
+            }
+            if (result is Task task)
+                await task;
+            return;
+        }
+        throw new MissingMethodException(typeof(RunManager).FullName, "SetUpSavedSingleplayer/SetUpSavedSinglePlayer(RunState, SerializableRun)");
     }
 
     private static async Task WaitForCurrentRunSaveTaskAsync()

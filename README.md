@@ -60,8 +60,8 @@ Or build a standalone compatibility pack from this submodule with local environm
 
 ```bash
 export DOTNET_BIN=/path/to/dotnet
-export STS2_ORIGINAL_V1061_REFERENCE_DIR=/path/to/original-v0.106.1/bin/Debug
-REFERENCE_FLAVOR=original-v0.106.1 ./tools/build-compat-pack.sh
+export STS2_ORIGINAL_V1070_REFERENCE_DIR=/path/to/original-v0.107.0/bin/Debug
+REFERENCE_FLAVOR=original-v0.107.0 ./tools/build-compat-pack.sh
 ```
 
 The patched Godot runtime expects `STS2Mobile.dll` / `STS2Mobile.ModEntry`; the parent build script builds this skeleton under that assembly name and copies it into `android/assets/dotnet_bcl/`.

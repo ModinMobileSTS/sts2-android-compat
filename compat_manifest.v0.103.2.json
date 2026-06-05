@@ -1,14 +1,18 @@
 {
   "schema": 1,
-  "pack_id": "sts2-android-compat-v0.103.2",
-  "display_name": "STS2 Android Compatibility for v0.103.2",
-  "compat_version": "0.1.0-1032",
+  "pack_id": "sts2-android-compat-v0.103.x",
+  "display_name": "STS2 Android Compatibility for v0.103.x",
+  "compat_version": "0.1.1-103x",
   "channel": "stable",
   "target_game": {
     "version": "v0.103.2",
-    "source_dir": "../s2_original/s21032",
-    "sts2_dll_sha256": "",
-    "match": "exact-preferred"
+    "supported_versions": [
+      "v0.103.2",
+      "v0.103.3"
+    ],
+    "source": "original_pc_reference_v0.103.2",
+    "sts2_dll_sha256": "e6ff778a286d38467e25a10b04c54306537707ded24e35bca2edfda1d70c2c6d",
+    "match": "version-family"
   },
   "runtime": {
     "entry_assembly": "STS2Mobile.dll",
@@ -19,6 +23,7 @@
     "overlay_pck": "port_compat.pck"
   },
   "notes": [
-    "Built from the extracted Android compat patcher branch compat/v0.103.2."
+    "Built from the extracted Android compat patcher branch compat/v0.103.2 and renamed as the v0.103.x stable compatibility pack.",
+    "The same patch set is allowed for official v0.103.2 and v0.103.3 payloads; v0.103.3 only renamed internal stock-slot helper code that this pack does not patch directly."
   ]
 }

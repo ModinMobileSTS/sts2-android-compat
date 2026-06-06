@@ -20,7 +20,9 @@ public static class ShaderCompatibilityPatches
         { "res://shaders/vfx/scream/vfx_scream_distortion_polar_shader.gdshader", "res://shaders/mobile_compat/scream_distortion_compat.gdshader" },
         { "res://shaders/vfx/vfx_water_reflection_post.gdshader", "res://shaders/mobile_compat/water_reflection_post_compat.gdshader" },
         { "res://shaders/vfx/the_insatiable_sand_fall_2.gdshader", "res://shaders/mobile_compat/sand_fall_post_compat.gdshader" },
-        { "res://shaders/blur/canvas_group_mask_blur.gdshader", "res://shaders/mobile_compat/canvas_group_mask_blur_compat.gdshader" },
+        // Do not replace res://shaders/blur/canvas_group_mask_blur.gdshader.
+        // It is used by NCard's PortraitCanvasGroup / Ancient-card mask path;
+        // the mobile substitute can render Ancient card faces as solid white.
         { "res://shaders/overlay_blend.gdshader", "res://shaders/mobile_compat/overlay_blend_compat.gdshader" },
     };
 

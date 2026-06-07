@@ -623,7 +623,6 @@ public static class LifecycleAndPerformancePatches
             "res://shaders/mobile_compat/scream_distortion_compat.gdshader",
             "res://shaders/mobile_compat/water_reflection_post_compat.gdshader",
             "res://shaders/mobile_compat/sand_fall_post_compat.gdshader",
-            "res://shaders/mobile_compat/canvas_group_mask_blur_compat.gdshader",
             "res://shaders/mobile_compat/overlay_blend_compat.gdshader",
         };
     }

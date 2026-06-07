@@ -37,7 +37,9 @@ Current implementation (`STS2AndroidPortCompat`):
   Steam mod enumeration.
 - `ShaderCompatibilityPatches` loads `port_compat.pck` and applies the mobile
   shader replacements copied from the old port when
-  `shader_compatibility_mode` is enabled.
+  `shader_compatibility_mode` is enabled; it intentionally keeps the original
+  `canvas_group_mask_blur.gdshader` card/Ancient-card face shader because the
+  mobile replacement can render Ancient card faces solid white.
 - `TouchInputPatches` adds the first touch-friendly card-play cancellation path
   for releases outside the play zone / untargeted releases.
 - `MobileTapPreviewPatches` adds a first-pass tap-to-lift card preview flow using

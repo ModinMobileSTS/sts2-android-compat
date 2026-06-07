@@ -62,7 +62,10 @@ LAN multiplayer compatibility is implemented as Harmony patches in
 `lan_use_custom_platform_player_id`, `lan_custom_player_id`, `lan_join_host`,
 `lan_join_port`, `max_multiplayer_enabled`, and `max_multiplayer_players` from
 companion settings instead of adding Android-only fields to the imported PC game
-assembly.
+assembly. `lan_multiplayer_enabled` is the local multiplayer patch master switch;
+when it is off, or when `sts2_lan_connect` / STS2 Game Lobby is already loaded,
+the whole local LAN patch set is skipped to avoid protocol conflicts with that
+MOD.
 
 Local mod enable/disable compatibility is handled in
 `Patches/AndroidSettingsPatches.cs`: companion `mod_settings.mods_enabled`,

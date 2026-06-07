@@ -104,11 +104,8 @@ public static class LanMultiplayerPatches
 
     public static void Apply(Harmony harmony)
     {
-        if (!AndroidSettingsBridge.GetBool("lan_multiplayer_enabled", true))
-        {
-            PatchHelper.Log("LAN multiplayer compatibility is disabled by Android companion settings.");
+        if (!ShouldApplyLocalLanPatches())
             return;
-        }
 
         BuildMessageTypeMaps();
 
@@ -302,6 +299,106 @@ public static class LanMultiplayerPatches
             return true;
         __result = StartLoadedHostAsync(__instance, run);
         return false;
+    }
+
+    private static bool ShouldApplyLocalLanPatches()
+    {
+        if (!AndroidSettingsBridge.GetBool("lan_multiplayer_enabled", true))
+        {
+            PatchHelper.Log("Local LAN multiplayer patches are disabled by Android companion settings.");
+            return false;
+        }
+
+        if (IsSts2GameLobbyModLoaded())
+        {
+            PatchHelper.Log("Detected STS2 Game Lobby / sts2_lan_connect mod; skipping local LAN multiplayer patches to avoid protocol conflicts.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsSts2GameLobbyModLoaded()
+    {
+        try
+        {
+            var getLoadedMods = typeof(ModManager).GetMethod("GetLoadedMods", BindingFlags.Public | BindingFlags.Static);
+            if (getLoadedMods?.Invoke(null, null) is System.Collections.IEnumerable loadedMods)
+            {
+                foreach (var mod in loadedMods)
+                {
+                    if (IsSts2GameLobbyMod(mod))
+                        return true;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Failed to inspect loaded mods for STS2 Game Lobby: {exception.Message}");
+        }
+
+        try
+        {
+            return AppDomain.CurrentDomain.GetAssemblies().Any(IsSts2GameLobbyAssembly);
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Failed to inspect loaded assemblies for STS2 Game Lobby: {exception.Message}");
+            return false;
+        }
+    }
+
+    private static bool IsSts2GameLobbyMod(object mod)
+    {
+        if (mod == null)
+            return false;
+        var type = mod.GetType();
+        var manifest = type.GetField("manifest", BindingFlags.Public | BindingFlags.Instance)?.GetValue(mod)
+            ?? type.GetProperty("manifest", BindingFlags.Public | BindingFlags.Instance)?.GetValue(mod);
+        if (manifest != null)
+        {
+            var manifestType = manifest.GetType();
+            if (IsSts2GameLobbyIdentifier(manifestType.GetField("id", BindingFlags.Public | BindingFlags.Instance)?.GetValue(manifest) as string)
+                || IsSts2GameLobbyIdentifier(manifestType.GetProperty("id", BindingFlags.Public | BindingFlags.Instance)?.GetValue(manifest) as string)
+                || IsSts2GameLobbyIdentifier(manifestType.GetField("name", BindingFlags.Public | BindingFlags.Instance)?.GetValue(manifest) as string)
+                || IsSts2GameLobbyIdentifier(manifestType.GetProperty("name", BindingFlags.Public | BindingFlags.Instance)?.GetValue(manifest) as string))
+            {
+                return true;
+            }
+        }
+
+        var assembly = type.GetField("assembly", BindingFlags.Public | BindingFlags.Instance)?.GetValue(mod) as Assembly
+            ?? type.GetProperty("assembly", BindingFlags.Public | BindingFlags.Instance)?.GetValue(mod) as Assembly;
+        return assembly != null && IsSts2GameLobbyAssembly(assembly);
+    }
+
+    private static bool IsSts2GameLobbyAssembly(Assembly assembly)
+    {
+        if (assembly == null || assembly == typeof(LanMultiplayerPatches).Assembly)
+            return false;
+        var assemblyName = assembly.GetName().Name;
+        if (IsSts2GameLobbyIdentifier(assemblyName))
+            return true;
+        try
+        {
+            return assembly.GetTypes().Any(type => type.FullName != null && type.FullName.StartsWith("Sts2LanConnect.", StringComparison.Ordinal));
+        }
+        catch (ReflectionTypeLoadException exception)
+        {
+            return exception.Types.Any(type => type?.FullName != null && type.FullName.StartsWith("Sts2LanConnect.", StringComparison.Ordinal));
+        }
+    }
+
+    private static bool IsSts2GameLobbyIdentifier(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        var normalized = value.Trim().Replace('-', '_').Replace(' ', '_');
+        return normalized.Equals("sts2_lan_connect", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("sts2_game_lobby", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("sts2_lobby_connect", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("sts2_lan_connect", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("sts2_game_lobby", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void BuildMessageTypeMaps()

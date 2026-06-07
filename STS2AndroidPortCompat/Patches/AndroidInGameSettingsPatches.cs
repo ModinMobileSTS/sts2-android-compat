@@ -292,7 +292,7 @@ public static class AndroidInGameSettingsPatches
         AddSwitchRow(content, "quick_sl_enabled", T("启用快速 SL / 重打按钮", "Enable quick retry button"), true, null);
         AddSwitchRow(content, "max_multiplayer_enabled", T("启用自定义最大联机人数", "Enable custom max multiplayer players"), true, null);
         AddIntPaginatorRow(content, "max_multiplayer_players", T("最大联机人数", "Max multiplayer players"), Range(1, 128, 1), 4, v => v.ToString(), null);
-        AddSwitchRow(content, "lan_multiplayer_enabled", T("启用 LAN 兼容", "Enable LAN compatibility"), true, null);
+        AddSwitchRow(content, "lan_multiplayer_enabled", T("本地联机补丁", "Local multiplayer patch"), true, null);
         AddTextRow(content, "lan_custom_player_id", T("LAN 自定义玩家 ID", "LAN custom player ID"), "", null);
     }
 

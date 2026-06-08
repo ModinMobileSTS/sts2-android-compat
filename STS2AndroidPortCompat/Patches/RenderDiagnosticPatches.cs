@@ -21,16 +21,30 @@ public static class RenderDiagnosticPatches
 
     public static void Apply(Harmony _)
     {
-        // SceneTree가 아직 만들어지지 않았을 수 있으므로 deferred로 진단을 미룬다.
-        // ModEntry.ScheduleStandaloneLauncher와 동일한 self-retry 패턴.
-        Callable.From(RunWhenReady).CallDeferred();
+        try
+        {
+            // SceneTree가 아직 만들어지지 않았을 수 있으므로 deferred로 진단을 미룬다.
+            // ModEntry.ScheduleStandaloneLauncher와 동일한 self-retry 패턴.
+            Callable.From(RunWhenReady).CallDeferred();
+        }
+        catch (Exception ex)
+        {
+            PatchHelper.Log($"{Tag} schedule failed: {ex}");
+        }
     }
 
     private static void RunWhenReady()
     {
         if (Engine.GetMainLoop() is not SceneTree tree)
         {
-            Callable.From(RunWhenReady).CallDeferred();
+            try
+            {
+                Callable.From(RunWhenReady).CallDeferred();
+            }
+            catch (Exception ex)
+            {
+                PatchHelper.Log($"{Tag} retry schedule failed: {ex.Message}");
+            }
             return;
         }
 

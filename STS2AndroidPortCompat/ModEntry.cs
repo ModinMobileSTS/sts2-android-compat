@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Godot;
 using Godot.Bridge;
@@ -25,9 +26,12 @@ public static class ModEntry
     {
         try
         {
+            Console.Error.WriteLine($"[STS2Mobile] DIAG InitializeGodotSharp begin godotDllHandle=0x{godotDllHandle.ToInt64():x} outManagedCallbacks=0x{outManagedCallbacks.ToInt64():x} unmanagedCallbacks=0x{unmanagedCallbacks.ToInt64():x} unmanagedCallbacksSize={unmanagedCallbacksSize} assembly={SafeAssemblyLocation(typeof(ModEntry).Assembly)} baseDir={AppContext.BaseDirectory} cwd={SafeCurrentDirectory()} framework={RuntimeInformation.FrameworkDescription} os={RuntimeInformation.OSDescription} arch={RuntimeInformation.ProcessArchitecture}");
             DllImportResolver resolver = new GodotDllImportResolver(godotDllHandle).OnResolveDllImport;
             NativeLibrary.SetDllImportResolver(typeof(GodotObject).Assembly, resolver);
+            Console.Error.WriteLine($"[STS2Mobile] DIAG InitializeGodotSharp resolver installed godotSharpAssembly={SafeAssemblyLocation(typeof(GodotObject).Assembly)}");
             NativeFuncs.Initialize(unmanagedCallbacks, unmanagedCallbacksSize);
+            Console.Error.WriteLine("[STS2Mobile] DIAG InitializeGodotSharp NativeFuncs initialized");
             ManagedCallbacks.Create(outManagedCallbacks);
             Console.Error.WriteLine("[STS2Mobile] GodotSharp bootstrapped successfully");
             return 1;
@@ -42,41 +46,46 @@ public static class ModEntry
     [UnmanagedCallersOnly]
     public static void Apply()
     {
+        Console.Error.WriteLine($"[STS2Mobile] DIAG Apply entry applied={_applied} assembly={SafeAssemblyLocation(typeof(ModEntry).Assembly)} baseDir={AppContext.BaseDirectory} cwd={SafeCurrentDirectory()} temp={SafeTempPath()} framework={RuntimeInformation.FrameworkDescription} os={RuntimeInformation.OSDescription} arch={RuntimeInformation.ProcessArchitecture}");
+        LogRuntimeSnapshot("apply_entry");
         if (_applied)
             return;
         _applied = true;
 
         EnsureAndroidTempDirectory();
+        LogRuntimeSnapshot("after_temp_directory");
 
         PatchHelper.Log("Initializing STS2Mobile Android port compatibility.");
         CompatBuildInfo.Log();
+        HarmonyAndroidCompat.Initialize();
+        LogRuntimeSnapshot("after_harmony_android_compat_init");
         _harmony = new Harmony("com.sts2mobile");
+        PatchHelper.Log($"DIAG Harmony instance created id=com.sts2mobile assembly={typeof(Harmony).Assembly.FullName} location={SafeAssemblyLocation(typeof(Harmony).Assembly)}");
 
-        // Reference launcher applies this outside the game-type try/catch so it
-        // also runs in bootstrap/launcher-only mode.
-        RenderDiagnosticPatches.Apply(_harmony);
+        ApplyPatchGroup("Critical platform patches", () => PlatformPatches.Apply(_harmony));
+        ApplyPatchGroup("Critical save path patches", () => SavePathPatches.Apply(_harmony));
 
-        try
+        ApplyPatchGroup("Mod framework and model patches", () =>
         {
-            // Keep mod framework shims first.  They only register AssemblyLoad
-            // listeners, and must be present before ModManager loads user DLLs.
             BaseLibCompatPatches.Apply(_harmony);
             RitsuLibCompatPatches.Apply(_harmony);
             ModelDbInitPatch.Apply(_harmony);
             UnlockStateCompatPatches.Apply(_harmony);
-            PlatformPatches.Apply(_harmony);
+        });
+
+        ApplyPatchGroup("Release/settings/display patches", () =>
+        {
             ReleaseInfoPatches.Apply(_harmony);
             SavePathPatches.Apply(_harmony);
-
-            // Reference launcher's mobile/default settings + UI scale patches,
-            // plus this port's Java companion settings bridge.
             SettingsPatches.Apply(_harmony);
             AndroidSettingsPatches.Apply(_harmony);
             DisplaySettingsPatches.Apply(_harmony);
             AndroidFontCoveragePatches.Apply(_harmony);
             UiScalePatches.Apply(_harmony);
+        });
 
-            // Reference mobile layout/input fixes.
+        ApplyPatchGroup("Mobile layout/input patches", () =>
+        {
             MobileLayoutPatches.Apply(_harmony);
             EventLayoutPatches.Apply(_harmony);
             MerchantLayoutPatches.Apply(_harmony);
@@ -85,8 +94,10 @@ public static class ModEntry
             EarlyAccessDisclaimerPatches.Apply(_harmony);
             FeedbackScreenPatches.Apply(_harmony);
             CombatBackgroundPatches.Apply(_harmony);
+        });
 
-            // This port's extra Android UI/input/shader/lifecycle additions.
+        ApplyPatchGroup("Android runtime feature patches", () =>
+        {
             AndroidUiSafetyPatches.Apply(_harmony);
             ExternalSettingsPatches.Apply(_harmony);
             AndroidInGameSettingsPatches.Apply(_harmony);
@@ -101,18 +112,143 @@ public static class ModEntry
             IntentAnimationPatches.Apply(_harmony);
             QuickRestartPatches.Apply(_harmony);
             LifecycleAndPerformancePatches.Apply(_harmony);
+        });
 
-            // Reference launcher applies LAN before mod-loader; keep the same
-            // relative order while deferring the heavy LAN patch set to menu time.
+        ApplyPatchGroup("LAN/mod-loader diagnostic patches", () =>
+        {
             LanMultiplayerBootstrapPatches.Apply(_harmony);
             ModLoaderPatches.Apply(_harmony);
             SaveDiagnosticPatches.Apply(_harmony);
+        });
 
-            PatchHelper.Log("All Android port compatibility patches applied.");
+        ApplyPatchGroup("Render diagnostic patches", () => RenderDiagnosticPatches.Apply(_harmony));
+        PatchHelper.Log("Android port compatibility patch pass finished.");
+        LogRuntimeSnapshot("apply_finished");
+    }
+
+    private static void ApplyPatchGroup(string label, Action apply)
+    {
+        try
+        {
+            apply();
+            PatchHelper.Log($"{label} applied.");
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"Patch application failed: {exception}");
+            PatchHelper.Log($"{label} failed: {exception}");
+        }
+    }
+
+    private static void LogRuntimeSnapshot(string phase)
+    {
+        try
+        {
+            var assemblyDir = Path.GetDirectoryName(SafeAssemblyLocation(typeof(ModEntry).Assembly));
+            var filesDir = TryResolveFilesDirFromPublishDir(assemblyDir);
+            PatchHelper.Log($"DIAG runtime_snapshot phase={phase}; assembly_dir={assemblyDir}; files_dir={filesDir}; base_dir={AppContext.BaseDirectory}; cwd={SafeCurrentDirectory()}; TMPDIR={System.Environment.GetEnvironmentVariable("TMPDIR") ?? "<null>"}; TMP={System.Environment.GetEnvironmentVariable("TMP") ?? "<null>"}; TEMP={System.Environment.GetEnvironmentVariable("TEMP") ?? "<null>"}; Path.GetTempPath={SafeTempPath()}; loaded_assemblies={DescribeLoadedAssemblies()}");
+            LogFileSnapshot(phase, assemblyDir, "STS2Mobile.dll");
+            LogFileSnapshot(phase, assemblyDir, "0Harmony.dll");
+            LogFileSnapshot(phase, assemblyDir, "MonoMod.Core.dll");
+            LogFileSnapshot(phase, assemblyDir, "MonoMod.Utils.dll");
+            LogFileSnapshot(phase, assemblyDir, "MonoMod.Iced.dll");
+            LogFileSnapshot(phase, assemblyDir, "GodotSharp.dll");
+            LogFileSnapshot(phase, assemblyDir, "sts2.dll");
+            LogFileSnapshot(phase, assemblyDir, "sts2.deps.json");
+            LogFileSnapshot(phase, assemblyDir, "sts2.runtimeconfig.json");
+            if (!string.IsNullOrWhiteSpace(filesDir))
+            {
+                LogFileSnapshot(phase, filesDir, "port_compat.pck");
+                LogFileSnapshot(phase, Path.Combine(filesDir, "launcher"), "selected_instance.json");
+                LogFileSnapshot(phase, Path.Combine(filesDir, "launcher"), "selected_compat_pack.json");
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"DIAG runtime_snapshot failed phase={phase}: {exception}");
+        }
+    }
+
+    private static void LogFileSnapshot(string phase, string dir, string name)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                PatchHelper.Log($"DIAG file_snapshot phase={phase}; name={name}; dir=<empty>");
+                return;
+            }
+            var path = Path.Combine(dir, name);
+            var file = new FileInfo(path);
+            PatchHelper.Log($"DIAG file_snapshot phase={phase}; path={path}; exists={file.Exists}; bytes={(file.Exists ? file.Length : -1L)}; mtime_utc={(file.Exists ? file.LastWriteTimeUtc.ToString("O") : "<missing>")}");
+            if (file.Exists && file.Length <= 8192 && (name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)))
+            {
+                var text = File.ReadAllText(path).Replace('\n', ' ').Replace('\r', ' ');
+                if (text.Length > 2000)
+                    text = text.Substring(0, 2000) + "...<truncated>";
+                PatchHelper.Log($"DIAG file_text phase={phase}; path={path}; text={text}");
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"DIAG file_snapshot failed phase={phase}; dir={dir}; name={name}; error={exception.Message}");
+        }
+    }
+
+    private static string DescribeLoadedAssemblies()
+    {
+        try
+        {
+            var names = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetName().Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Where(name => name.Equals("STS2Mobile", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("sts2", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("0Harmony", StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith("MonoMod", StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith("GodotSharp", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
+            return string.Join(",", names);
+        }
+        catch (Exception exception)
+        {
+            return "<failed:" + exception.Message + ">";
+        }
+    }
+
+    private static string SafeAssemblyLocation(System.Reflection.Assembly assembly)
+    {
+        try
+        {
+            return assembly?.Location ?? "<null>";
+        }
+        catch (Exception exception)
+        {
+            return "<failed:" + exception.Message + ">";
+        }
+    }
+
+    private static string SafeCurrentDirectory()
+    {
+        try
+        {
+            return Directory.GetCurrentDirectory();
+        }
+        catch (Exception exception)
+        {
+            return "<failed:" + exception.Message + ">";
+        }
+    }
+
+    private static string SafeTempPath()
+    {
+        try
+        {
+            return Path.GetTempPath();
+        }
+        catch (Exception exception)
+        {
+            return "<failed:" + exception.Message + ">";
         }
     }
 

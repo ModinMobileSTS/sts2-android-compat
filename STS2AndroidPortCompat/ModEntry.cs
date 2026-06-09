@@ -103,6 +103,7 @@ public static class ModEntry
             AndroidInGameSettingsPatches.Apply(_harmony);
             ShaderCompatibilityPatches.Apply(_harmony);
             TransitionMaterialPatches.Apply(_harmony);
+            MapDrawingSceneCachePatches.Apply(_harmony);
             AndroidInputCompatPatches.Apply(_harmony);
             MobileSelectionConfirmationPatches.Apply(_harmony);
             MerchantSelectionConfirmationPatches.Apply(_harmony);

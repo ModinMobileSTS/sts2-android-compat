@@ -44,6 +44,7 @@ public static class HarmonyAndroidCompat
         TryForceAndroidPlatformDetection();
         TryLogMonoModDetection("after_platform_override");
         TryLogResolvedMonoModBackend();
+        HarmonyMethodReferenceImporterShim.Initialize();
 
         if (ShouldEnableMonoModFileLogging())
         {

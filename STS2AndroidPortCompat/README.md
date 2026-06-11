@@ -40,6 +40,13 @@ Startup/mod compatibility notes:
   returns a stable key fallback until normal localization initialization has
   completed. Do not move full `LocManager.Initialize` earlier; mod localization
   hooks depend on the original PC ordering.
+- `DeferredModPatchQueue` covers the adjacent case where a user mod patches an
+  STS2 Godot/UI type whose static fields directly read `LocManager.Instance` or
+  other not-yet-essential state. During each user-mod initializer/PatchAll it
+  queues patches for `sts2` UI/Godot targets with type initializers, then replays
+  them after `LocManager`, `ModelDb`, and model-id initialization finish.
+  Model-type patches are intentionally not deferred, because many mods need
+  their `ModelDb.Init` prefixes installed before the model construction phase.
 - `BaseLibCompatPatches` is intentionally the same degraded-mode workaround as
   the reference launcher: `BaseLib.Utils.Patching.AsyncMethodCall.Create` is
   prefix-disabled when BaseLib loads, so BaseLib's async hook state-machine

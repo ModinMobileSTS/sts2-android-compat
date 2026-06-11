@@ -290,6 +290,7 @@ public static class ModelDbInitPatch
 
         ModelIdSerializationCache.Init();
         ModelDb.InitIds();
+        DeferredModPatchQueue.FlushDeferredPatches("after ModelDb.InitIds");
         return false;
     }
 

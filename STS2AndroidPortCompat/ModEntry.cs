@@ -70,6 +70,7 @@ public static class ModEntry
             BaseLibCompatPatches.Apply(_harmony);
             RitsuLibCompatPatches.Apply(_harmony);
             EarlyLocalizationFallbackPatches.Apply(_harmony);
+            DeferredModPatchQueue.Apply(_harmony);
             ModelDbInitPatch.Apply(_harmony);
             UnlockStateCompatPatches.Apply(_harmony);
         });

@@ -144,6 +144,7 @@ public static class ModLoaderPatches
         foreach (var mod in GetMods().ToArray())
         {
             using (ModelDbInitPatch.BeginModInitializationContainsShield())
+            using (DeferredModPatchQueue.BeginModInitialization(GetModId(mod)))
             {
                 InvokeStatic("TryLoadMod", mod);
             }
@@ -172,6 +173,18 @@ public static class ModLoaderPatches
     private static List<Mod> GetMods()
     {
         return (List<Mod>)GetField("_mods");
+    }
+
+    private static string GetModId(Mod mod)
+    {
+        try
+        {
+            return mod?.manifest?.id;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static object GetField(string name)

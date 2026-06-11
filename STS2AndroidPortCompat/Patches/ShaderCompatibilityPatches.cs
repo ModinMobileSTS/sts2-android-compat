@@ -67,6 +67,13 @@ public static class ShaderCompatibilityPatches
             Callable.From(LoadOverlayPackWhenReady).CallDeferred();
             return;
         }
+        EnsureOverlayPackLoadedForDiagnostics();
+    }
+
+    public static bool EnsureOverlayPackLoadedForDiagnostics()
+    {
+        if (_loadedOverlayPack)
+            return true;
         try
         {
             var pckPath = System.IO.Path.Combine(OS.GetDataDir(), OverlayPackFileName);
@@ -84,6 +91,7 @@ public static class ShaderCompatibilityPatches
         {
             PatchHelper.Log($"Shader compatibility overlay load failed: {exception.Message}");
         }
+        return _loadedOverlayPack;
     }
 
     private static bool IsEnabled()

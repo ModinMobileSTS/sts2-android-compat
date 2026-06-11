@@ -40,6 +40,7 @@ public static class AndroidSettingsMerge
         "android_flip_screen_180",
         "fullscreen_render_size",
         "audio_compatibility_mode",
+        "android_performance_overlay_enabled",
         "lan_player_id",
         "lan_use_custom_player_id",
         "lan_use_custom_platform_player_id",

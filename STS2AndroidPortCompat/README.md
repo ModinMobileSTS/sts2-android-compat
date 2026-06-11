@@ -34,6 +34,12 @@ Startup/mod compatibility notes:
 - `ModEntry` now keeps the working `StS2-Launcher_Mod_Manager` patch order as
   the baseline: diagnostics, BaseLib AssemblyLoad hook, ModelDb/platform/
   release-info/settings/layout/input, LAN, then ModManager scan redirection.
+- `EarlyLocalizationFallbackPatches` protects the Android/Mono eager static
+  constructor path while user mods are running `Harmony.PatchAll`. If a game UI
+  type formats a `LocString` before `LocManager.Initialize`, the compat layer
+  returns a stable key fallback until normal localization initialization has
+  completed. Do not move full `LocManager.Initialize` earlier; mod localization
+  hooks depend on the original PC ordering.
 - `BaseLibCompatPatches` is intentionally the same degraded-mode workaround as
   the reference launcher: `BaseLib.Utils.Patching.AsyncMethodCall.Create` is
   prefix-disabled when BaseLib loads, so BaseLib's async hook state-machine

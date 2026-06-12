@@ -54,6 +54,9 @@ public static class ModelDbInitPatch
     private static int _modInitializationContainsShieldDepth;
     private static readonly Dictionary<ModelId, Type> _preRegisteredPlaceholderOwnersById = new();
     private static readonly HashSet<Type> _loggedModInitializationContainsShieldTypes = new();
+    private static bool _modelIdSerializationCacheReady;
+    private static int _earlyInitIdSkipCount;
+    private static readonly HashSet<Type> _loggedEarlyInitIdTypes = new();
 
     public static void Apply(Harmony harmony)
     {
@@ -92,6 +95,7 @@ public static class ModelDbInitPatch
         }
 
         PatchContains(harmony);
+        PatchModelIdInitialization(harmony);
 
         try
         {
@@ -109,6 +113,73 @@ public static class ModelDbInitPatch
         {
             PatchHelper.Log($"FAILED OneTimeInitialization.ExecuteEssential: {exception}");
         }
+    }
+
+    private static void PatchModelIdInitialization(Harmony harmony)
+    {
+        try
+        {
+            var cacheInitTarget = typeof(ModelIdSerializationCache).GetMethod(nameof(ModelIdSerializationCache.Init), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            var cacheInitPostfix = typeof(ModelDbInitPatch).GetMethod(nameof(ModelIdSerializationCacheInitPostfix), BindingFlags.Public | BindingFlags.Static);
+            var initIdTarget = typeof(AbstractModel).GetMethod(nameof(AbstractModel.InitId), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(ModelId) }, null);
+            var initIdPrefix = typeof(ModelDbInitPatch).GetMethod(nameof(InitIdPrefix), BindingFlags.Public | BindingFlags.Static);
+            if (cacheInitTarget == null || cacheInitPostfix == null || initIdTarget == null || initIdPrefix == null)
+            {
+                PatchHelper.Log("ModelDbInitPatch: AbstractModel.InitId early guard skipped; required method not found.");
+                return;
+            }
+
+            harmony.Patch(cacheInitTarget, postfix: new HarmonyMethod(cacheInitPostfix) { priority = Priority.First });
+            harmony.Patch(initIdTarget, prefix: new HarmonyMethod(initIdPrefix) { priority = Priority.First });
+            PatchHelper.Log("Patched AbstractModel.InitId for early MOD initializer safety before ModelIdSerializationCache is ready.");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"FAILED AbstractModel.InitId early guard: {exception}");
+        }
+    }
+
+    public static void ModelIdSerializationCacheInitPostfix()
+    {
+        MarkModelIdSerializationCacheReady("after ModelIdSerializationCache.Init");
+    }
+
+    public static bool InitIdPrefix(AbstractModel __instance, ModelId __0)
+    {
+        bool shouldLog;
+        int skipped;
+        lock (_phaseLock)
+        {
+            if (_modelIdSerializationCacheReady)
+                return true;
+
+            _earlyInitIdSkipCount++;
+            skipped = _earlyInitIdSkipCount;
+            var type = __instance?.GetType();
+            shouldLog = type != null && _loggedEarlyInitIdTypes.Add(type);
+        }
+
+        if (shouldLog)
+        {
+            PatchHelper.Log(
+                $"ModelDbInitPatch: deferred early AbstractModel.InitId for {DescribeType(__instance?.GetType())} ({DescribeModelId(__0)}) until ModelIdSerializationCache.Init completes; skipped={skipped}.");
+        }
+
+        return false;
+    }
+
+    private static void MarkModelIdSerializationCacheReady(string reason)
+    {
+        int skipped;
+        lock (_phaseLock)
+        {
+            if (_modelIdSerializationCacheReady)
+                return;
+            _modelIdSerializationCacheReady = true;
+            skipped = _earlyInitIdSkipCount;
+        }
+
+        PatchHelper.Log($"ModelDbInitPatch: ModelIdSerializationCache ready {reason}; deferred early AbstractModel.InitId call(s)={skipped}.");
     }
 
     public static void PatchContains(Harmony harmony)
@@ -805,6 +876,23 @@ public static class ModelDbInitPatch
         var dotIndex = namespaceName.IndexOf('.');
         var rootNamespace = dotIndex < 0 ? namespaceName : namespaceName[..dotIndex];
         return rootNamespace.ToUpperInvariant() + "-";
+    }
+
+    private static string DescribeType(Type type)
+    {
+        return type?.FullName ?? "<unknown>";
+    }
+
+    private static string DescribeModelId(ModelId id)
+    {
+        try
+        {
+            return $"{id.Category}.{id.Entry}";
+        }
+        catch
+        {
+            return "<unknown-id>";
+        }
     }
 
     private sealed class ModInitializationContainsShieldScope : IDisposable

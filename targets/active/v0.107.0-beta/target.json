@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "target_id": "v0.107.0-beta",
+  "status": "active",
+  "display_name": "STS2 v0.107.0 beta",
+  "versions": [
+    "v0.107.0"
+  ],
+  "reference_flavor": "original-v0.107.0",
+  "channel": "beta",
+  "source": "original_pc_reference_v0.107.0",
+  "sts2_dll_sha256": "4ad31f07b71820060b178ce3961f8589dbc94b3f8109428eaec8e7037ae2fdb3",
+  "compile_constants": [
+    "STS2_TARGET_1070"
+  ],
+  "notes": [
+    "Flattened target descriptor for the current beta compat line.",
+    "v0.107.0 changed ModManager.Initialize/ReadSteamMods to async Task."
+  ]
+}

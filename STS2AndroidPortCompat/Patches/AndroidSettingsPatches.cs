@@ -89,7 +89,9 @@ public static class AndroidSettingsPatches
         SetOptionalProperty(settings, "GlobalScale", AndroidSettingsBridge.GetFloat("global_scale", GetOptionalProperty(settings, "GlobalScale", 1f)));
         SetOptionalProperty(settings, "UiFontScalePercent", AndroidSettingsBridge.GetInt("ui_font_scale_percent", GetOptionalProperty(settings, "UiFontScalePercent", 100)));
         SetOptionalProperty(settings, "PreloadEnabled", AndroidSettingsBridge.GetBool("preload_enabled", GetOptionalProperty(settings, "PreloadEnabled", true)));
-        SetOptionalProperty(settings, "AndroidFlipScreen180", AndroidSettingsBridge.GetBool("android_flip_screen_180", GetOptionalProperty(settings, "AndroidFlipScreen180", false)));
+        var screenRotationMode = DisplaySettingsPatches.GetAndroidScreenRotationMode();
+        SetOptionalProperty(settings, "AndroidFlipScreen180", screenRotationMode == DisplaySettingsPatches.ScreenRotationReverseLandscape);
+        SetOptionalProperty(settings, "AndroidScreenRotationMode", screenRotationMode);
     }
 
     private static T GetOptionalProperty<T>(object target, string propertyName, T fallback)

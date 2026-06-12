@@ -38,6 +38,7 @@ public static class AndroidSettingsMerge
         "quick_sl_enabled",
         "android_volume_up_soft_keyboard",
         "android_flip_screen_180",
+        "android_screen_rotation_mode",
         "fullscreen_render_size",
         "audio_compatibility_mode",
         "android_performance_overlay_enabled",

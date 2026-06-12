@@ -239,7 +239,11 @@ public static class AndroidInGameSettingsPatches
 
         AddHeader(content, T("显示 / 图形", "Display / Graphics"));
         AddSwitchRow(content, "shader_compatibility_mode", T("着色器兼容模式", "Shader compatibility"), false, _ => PatchHelper.Log("Shader compatibility setting changed; already-loaded materials may require a restart."));
-        AddSwitchRow(content, "android_flip_screen_180", T("屏幕旋转 180°", "Rotate screen 180°"), false, _ => DisplaySettingsPatches.ApplyRuntimeDisplaySettings());
+        AddStringPaginatorRow(content, "android_screen_rotation_mode", T("旋转模式", "Rotation mode"), GetScreenRotationModeOptions(), DisplaySettingsPatches.ScreenRotationAuto, value =>
+        {
+            AndroidSettingsBridge.SetBool("android_flip_screen_180", value == DisplaySettingsPatches.ScreenRotationReverseLandscape);
+            DisplaySettingsPatches.ApplyRuntimeDisplaySettings();
+        }, readCurrent: DisplaySettingsPatches.GetAndroidScreenRotationMode);
         AddSizePaginatorRow(content, "fullscreen_render_size", T("渲染分辨率", "Render resolution"), GetResolutionOptions(), (0, 0), _ => DisplaySettingsPatches.ApplyRuntimeDisplaySettings());
         AddIntPaginatorRow(content, "ui_font_scale_percent", T("字体大小", "Font size"), Range(50, 200, 5), 100, v => $"{v}%", _ => DisplaySettingsPatches.ApplyRuntimeDisplaySettings());
         AddIntPaginatorRow(content, "global_scale", T("游戏缩放", "Game scale"), Range(50, 200, 5), 100, v => $"{v}%", v =>
@@ -577,10 +581,10 @@ public static class AndroidInGameSettingsPatches
         row.AddChild(paginator);
     }
 
-    private static void AddStringPaginatorRow(VBoxContainer content, string key, string label, (string Value, string Label)[] options, string fallback, Action<string> afterChanged)
+    private static void AddStringPaginatorRow(VBoxContainer content, string key, string label, (string Value, string Label)[] options, string fallback, Action<string> afterChanged, Func<string> readCurrent = null)
     {
         var row = AddBaseRow(content, label);
-        var current = AndroidSettingsBridge.GetString(key, fallback);
+        var current = readCurrent?.Invoke() ?? AndroidSettingsBridge.GetString(key, fallback);
         var labels = new string[options.Length];
         var currentIndex = 0;
         for (var i = 0; i < options.Length; i++)
@@ -740,6 +744,13 @@ public static class AndroidInGameSettingsPatches
         (1920, 1080),
         (2560, 1440),
         (3200, 1800),
+    };
+
+    private static (string Value, string Label)[] GetScreenRotationModeOptions() => new[]
+    {
+        (DisplaySettingsPatches.ScreenRotationAuto, T("自动", "Auto")),
+        (DisplaySettingsPatches.ScreenRotationLandscape, T("不旋转", "No rotation")),
+        (DisplaySettingsPatches.ScreenRotationReverseLandscape, T("旋转 180°", "180°")),
     };
 
     private static void AddSliderRow(VBoxContainer content, string key, string label, int min, int max, int step, int fallback, Func<int, string> format, Func<int, object> convert, Action<int> afterChanged)

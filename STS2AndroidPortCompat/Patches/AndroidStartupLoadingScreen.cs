@@ -1,12 +1,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Godot;
 using MegaCrit.Sts2.Core.Assets;
+using STS2Mobile.Android;
 
 namespace STS2Mobile.Patches;
 
@@ -25,11 +27,32 @@ public partial class AndroidStartupLoadingScreen : Control
         "res://scenes/vfx/vfx_starry_impact.tscn",
         "res://scenes/vfx/thin_slice_vfx.tscn",
         "res://scenes/vfx/stab_vfx.tscn",
+        "res://scenes/vfx/vfx_shiv_throw.tscn",
+        "res://scenes/vfx/vfx_dagger_throw.tscn",
+        "res://scenes/vfx/vfx_dagger_spray.tscn",
         "res://scenes/vfx/vfx_dagger_spray_flurry.tscn",
         "res://scenes/vfx/vfx_dagger_spray_impact.tscn",
         "res://scenes/vfx/vfx_poison_impact.tscn",
         "res://scenes/vfx/vfx_smoke_puff.tscn",
         "res://scenes/vfx/power_applied_vfx.tscn",
+    };
+
+    private static readonly HashSet<string> TreeWarmupEligiblePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "res://scenes/vfx/vfx_attack_slash.tscn",
+        "res://scenes/vfx/vfx_attack_blunt.tscn",
+        "res://scenes/vfx/vfx_block.tscn",
+        "res://scenes/vfx/vfx_slime_impact.tscn",
+        "res://scenes/vfx/vfx_starry_impact.tscn",
+        "res://scenes/vfx/thin_slice_vfx.tscn",
+        "res://scenes/vfx/stab_vfx.tscn",
+        "res://scenes/vfx/vfx_shiv_throw.tscn",
+        "res://scenes/vfx/vfx_dagger_throw.tscn",
+        "res://scenes/vfx/vfx_dagger_spray.tscn",
+        "res://scenes/vfx/vfx_dagger_spray_flurry.tscn",
+        "res://scenes/vfx/vfx_dagger_spray_impact.tscn",
+        "res://scenes/vfx/vfx_poison_impact.tscn",
+        "res://scenes/vfx/vfx_smoke_puff.tscn",
     };
 
     private static bool _combatHotPathsPrewarmed;
@@ -245,7 +268,7 @@ public partial class AndroidStartupLoadingScreen : Control
         await ToSignal(timer, SceneTreeTimer.SignalName.Timeout);
     }
 
-    public static async Task WarmupCriticalScenesAsync(AndroidStartupLoadingScreen loadingScreen, string mode)
+    public static async Task WarmupCriticalScenesAsync(AndroidStartupLoadingScreen loadingScreen, string mode, bool treeWarmup = false, int treeWarmupFrames = 0, bool retainCache = false, string treeWarmupScope = "safe")
     {
         string[] warmupScenePaths = GetWarmupScenePaths(mode);
         if (warmupScenePaths.Length == 0)
@@ -255,22 +278,40 @@ public partial class AndroidStartupLoadingScreen : Control
         }
 
         var tree = (loadingScreen?.GetTree() ?? (Engine.GetMainLoop() as SceneTree));
+        Node warmupRoot = treeWarmup ? CreateWarmupRoot(loadingScreen, tree) : null;
+        int cachedBefore = CountCached(warmupScenePaths);
+        int loaded = 0;
+        int instantiated = 0;
+        int resourceOnly = 0;
+        int treeIneligible = 0;
+        int treeWarmed = 0;
+        int treeFailed = 0;
+        int skipped = 0;
+        int failed = 0;
+        string normalizedTreeWarmupScope = NormalizeTreeWarmupScope(treeWarmupScope);
+        bool treeWarmupAll = string.Equals(normalizedTreeWarmupScope, "all", StringComparison.Ordinal);
+        int treeEligible = treeWarmup ? warmupScenePaths.Count(path => IsTreeWarmupEligible(path, normalizedTreeWarmupScope)) : 0;
+        ShaderCacheSnapshot shaderCacheBefore = ShaderCacheSnapshot.Capture();
+        ulong started = Time.GetTicksMsec();
+        PatchHelper.Log($"Android VFX warmup begin: mode={mode} scenes={warmupScenePaths.Length:N0} tree={treeWarmup} tree_scope={normalizedTreeWarmupScope} tree_eligible={treeEligible:N0} frames={treeWarmupFrames} retain_cache={retainCache} cached_before={cachedBefore:N0} shader_cache_before={shaderCacheBefore}.");
         for (int i = 0; i < warmupScenePaths.Length; i++)
         {
             string path = warmupScenePaths[i];
             float progress = 0.9f + (float)i / warmupScenePaths.Length * SceneWarmupWeight;
             if (loadingScreen != null)
             {
-                loadingScreen._titleLabel.Text = "Compiling combat effects...";
+                loadingScreen._titleLabel.Text = treeWarmup ? "Rendering combat effects..." : "Compiling combat effects...";
                 loadingScreen._detailsLabel.Text = $"{i + 1}/{warmupScenePaths.Length}: {GetSceneDisplayName(path)}";
                 loadingScreen.UpdateOverallProgress(progress);
             }
 
+            Node node = null;
             try
             {
-                PackedScene packedScene = ResourceLoader.Load<PackedScene>(path, null, ResourceLoader.CacheMode.Ignore);
+                PackedScene packedScene = LoadWarmupScene(path, retainCache);
                 if (packedScene == null)
                 {
+                    skipped++;
                     if (loadingScreen != null)
                         loadingScreen._detailsLabel.Text = $"Skipped: {GetSceneDisplayName(path)}";
                     if (tree != null)
@@ -279,19 +320,307 @@ public partial class AndroidStartupLoadingScreen : Control
                         await Task.Yield();
                     continue;
                 }
-                Node node = packedScene.Instantiate<Node>(PackedScene.GenEditState.Disabled);
-                node.Free();
+                loaded++;
+                node = packedScene.Instantiate<Node>(PackedScene.GenEditState.Disabled);
+                instantiated++;
+                if (treeWarmup && warmupRoot != null && GodotObject.IsInstanceValid(warmupRoot))
+                {
+                    if (IsTreeWarmupEligible(path, normalizedTreeWarmupScope))
+                    {
+                        ConfigureWarmupNode(node, path);
+                        try
+                        {
+                            ulong treeStarted = Time.GetTicksMsec();
+                            warmupRoot.AddChild(node);
+                            treeWarmed++;
+                            int framesToWait = GetTreeWarmupFrameCount(path, treeWarmupFrames);
+                            await WaitWarmupFramesAsync(tree, framesToWait);
+                            ulong elapsed = Time.GetTicksMsec() - treeStarted;
+                            if (elapsed >= 50 && IsPreloadDebugEnabled())
+                                PatchHelper.Log($"VFX tree warmup slow path={path} frames={framesToWait} elapsed={elapsed:N0}ms node={node.GetType().FullName}");
+                        }
+                        catch (Exception exception)
+                        {
+                            treeFailed++;
+                            string nodeType = node != null ? node.GetType().FullName : "<null>";
+                            PatchHelper.Log($"VFX tree warmup failed path={path} node={nodeType}: {exception.GetType().Name}: {exception.Message}");
+                        }
+                        finally
+                        {
+                            FreeWarmupNode(node);
+                            node = null;
+                        }
+                    }
+                    else
+                    {
+                        treeIneligible++;
+                        resourceOnly++;
+                        if (treeIneligible <= 20 && IsPreloadDebugEnabled())
+                            PatchHelper.Log($"VFX tree warmup resource-only path={path} reason=requires_original_create_or_not_allowlisted scope={normalizedTreeWarmupScope}");
+                        FreeWarmupNode(node);
+                        node = null;
+                    }
+                }
+                else
+                {
+                    resourceOnly++;
+                    FreeWarmupNode(node);
+                    node = null;
+                }
             }
             catch (Exception exception)
             {
+                failed++;
                 PatchHelper.Log($"Startup VFX warmup skipped {path}: {exception.Message}");
+                FreeWarmupNode(node);
             }
             if (tree != null)
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             else
                 await Task.Yield();
         }
+        if (warmupRoot != null && GodotObject.IsInstanceValid(warmupRoot))
+            warmupRoot.QueueFree();
         loadingScreen?.UpdateOverallProgress(1f);
+        int cachedAfter = CountCached(warmupScenePaths);
+        ShaderCacheSnapshot shaderCacheAfter = ShaderCacheSnapshot.Capture();
+        PatchHelper.Log($"Android VFX warmup complete: mode={mode} scenes={warmupScenePaths.Length:N0} loaded={loaded:N0} instantiated={instantiated:N0} resource_only={resourceOnly:N0} tree_warmed={treeWarmed:N0} tree_ineligible={treeIneligible:N0} tree_failed={treeFailed:N0} skipped={skipped:N0} failed={failed:N0} cached_before={cachedBefore:N0} cached_after={cachedAfter:N0} shader_cache_after={shaderCacheAfter} shader_cache_delta_files={shaderCacheAfter.FileCount - shaderCacheBefore.FileCount:N0} shader_cache_delta_bytes={shaderCacheAfter.TotalBytes - shaderCacheBefore.TotalBytes:N0} elapsed={Time.GetTicksMsec() - started:N0}ms.");
+    }
+
+    private static PackedScene LoadWarmupScene(string path, bool retainCache)
+    {
+        if (retainCache)
+        {
+            if (PreloadManager.Cache.ContainsKey(path))
+                return PreloadManager.Cache.GetScene(path);
+            PackedScene scene = ResourceLoader.Load<PackedScene>(path, null, ResourceLoader.CacheMode.Reuse);
+            if (scene != null)
+                PreloadManager.Cache.SetAsset(path, scene);
+            return scene;
+        }
+        return ResourceLoader.Load<PackedScene>(path, null, ResourceLoader.CacheMode.Ignore);
+    }
+
+    private static Node CreateWarmupRoot(AndroidStartupLoadingScreen loadingScreen, SceneTree tree)
+    {
+        try
+        {
+            Node parent = loadingScreen != null ? loadingScreen : tree?.Root;
+            if (parent == null || !GodotObject.IsInstanceValid(parent))
+                return null;
+            var root = new Control
+            {
+                Name = "AndroidVfxTreeWarmupRoot",
+                LayoutMode = 1,
+                AnchorRight = 1f,
+                AnchorBottom = 1f,
+                MouseFilter = MouseFilterEnum.Ignore,
+                ZIndex = -1000,
+                ZAsRelative = false,
+                ClipContents = false,
+            };
+            parent.AddChild(root);
+            if (loadingScreen != null && GodotObject.IsInstanceValid(loadingScreen))
+                loadingScreen.MoveChild(root, 0);
+            return root;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"VFX tree warmup root unavailable: {exception.Message}");
+            return null;
+        }
+    }
+
+    private static void ConfigureWarmupNode(Node node, string path)
+    {
+        if (node == null)
+            return;
+        node.Name = "AndroidWarmup_" + node.Name;
+        node.ProcessMode = ProcessModeEnum.Always;
+        if (node is CanvasItem canvasItem)
+        {
+            canvasItem.Visible = true;
+            canvasItem.ZIndex = -1000;
+            canvasItem.ZAsRelative = false;
+        }
+        if (node is Node2D node2D)
+        {
+            node2D.Position = new Vector2(960f, 540f);
+            node2D.Scale = Vector2.One;
+        }
+        else if (node is Control control)
+        {
+            control.Position = new Vector2(960f, 540f);
+            control.Size = new Vector2(256f, 256f);
+            control.MouseFilter = MouseFilterEnum.Ignore;
+        }
+        ConfigureCombatVfxWarmupNode(node, path);
+    }
+
+    private static void ConfigureCombatVfxWarmupNode(Node node, string path)
+    {
+        try
+        {
+            if (path != null && (path.Contains("shiv", StringComparison.OrdinalIgnoreCase) || path.Contains("dagger", StringComparison.OrdinalIgnoreCase)))
+            {
+                InvokeOptionalWarmupMethod(node, "ApplyTint", new object[] { new Color("#47ff7a") });
+                InvokeOptionalWarmupMethod(node, "ApplyRotation", new object[] { new Vector2(760f, 540f), new Vector2(1160f, 540f) });
+            }
+        }
+        catch (Exception exception)
+        {
+            if (IsPreloadDebugEnabled())
+                PatchHelper.Log($"VFX warmup node configuration skipped path={path}: {exception.Message}");
+        }
+    }
+
+    private static void InvokeOptionalWarmupMethod(Node node, string methodName, object[] arguments)
+    {
+        try
+        {
+            Type[] argumentTypes = arguments.Select(argument => argument.GetType()).ToArray();
+            MethodInfo method = node.GetType().GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance, null, argumentTypes, null);
+            method?.Invoke(node, arguments);
+        }
+        catch (Exception exception)
+        {
+            if (exception is TargetInvocationException targetException && targetException.InnerException != null)
+                exception = targetException.InnerException;
+            if (IsPreloadDebugEnabled())
+                PatchHelper.Log($"VFX warmup optional call skipped node={node.GetType().Name} method={methodName}: {exception.Message}");
+        }
+    }
+
+    private static string NormalizeTreeWarmupScope(string scope)
+    {
+        return string.Equals(scope?.Trim(), "all", StringComparison.OrdinalIgnoreCase) ? "all" : "safe";
+    }
+
+    private static bool IsPreloadDebugEnabled() => AndroidSettingsBridge.GetBool("preload_debug_enabled", false);
+
+    private static bool IsTreeWarmupEligible(string path, string scope)
+    {
+        if (string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
+            return IsWarmupScenePath(path);
+        return TreeWarmupEligiblePaths.Contains(path);
+    }
+
+    private static int GetTreeWarmupFrameCount(string path, int configuredFrames)
+    {
+        int frames = Math.Max(1, configuredFrames);
+        if (path != null && (path.Contains("shiv", StringComparison.OrdinalIgnoreCase) || path.Contains("dagger", StringComparison.OrdinalIgnoreCase)))
+            frames = Math.Max(frames, 12);
+        return Math.Min(frames, 30);
+    }
+
+    private static void FreeWarmupNode(Node node)
+    {
+        if (node == null || !GodotObject.IsInstanceValid(node))
+            return;
+        if (node.IsInsideTree())
+            node.QueueFree();
+        else
+            node.Free();
+    }
+
+    private static async Task WaitWarmupFramesAsync(SceneTree tree, int frames)
+    {
+        if (tree == null)
+        {
+            await Task.Yield();
+            return;
+        }
+        for (int i = 0; i < frames; i++)
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+    }
+
+    private static int CountCached(IEnumerable<string> paths)
+    {
+        int count = 0;
+        try
+        {
+            foreach (string path in paths)
+            {
+                if (PreloadManager.Cache.ContainsKey(path))
+                    count++;
+            }
+        }
+        catch
+        {
+        }
+        return count;
+    }
+
+    private readonly struct ShaderCacheSnapshot
+    {
+        public readonly int FileCount;
+        public readonly long TotalBytes;
+        public readonly string Buckets;
+
+        private ShaderCacheSnapshot(int fileCount, long totalBytes, string buckets)
+        {
+            FileCount = fileCount;
+            TotalBytes = totalBytes;
+            Buckets = buckets ?? string.Empty;
+        }
+
+        public static ShaderCacheSnapshot Capture()
+        {
+            try
+            {
+                string root = Path.Combine(AppPaths.DataDir, "shader_cache");
+                if (!Directory.Exists(root))
+                    return new ShaderCacheSnapshot(0, 0, "missing");
+
+                int fileCount = 0;
+                long totalBytes = 0;
+                var bucketCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                {
+                    fileCount++;
+                    try
+                    {
+                        totalBytes += new FileInfo(file).Length;
+                    }
+                    catch
+                    {
+                    }
+
+                    string bucket = GetTopLevelShaderCacheBucket(root, file);
+                    bucketCounts.TryGetValue(bucket, out int count);
+                    bucketCounts[bucket] = count + 1;
+                }
+
+                string buckets = string.Join(",", bucketCounts
+                    .OrderByDescending(pair => pair.Value)
+                    .Take(8)
+                    .Select(pair => $"{pair.Key}:{pair.Value:N0}"));
+                return new ShaderCacheSnapshot(fileCount, totalBytes, buckets);
+            }
+            catch (Exception exception)
+            {
+                return new ShaderCacheSnapshot(0, 0, "error=" + exception.GetType().Name);
+            }
+        }
+
+        public override string ToString()
+        {
+            return $"files={FileCount:N0},bytes={TotalBytes:N0},buckets=[{Buckets}]";
+        }
+
+        private static string GetTopLevelShaderCacheBucket(string root, string file)
+        {
+            try
+            {
+                string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+                int slash = relative.IndexOf('/');
+                return slash > 0 ? relative.Substring(0, slash) : "<root>";
+            }
+            catch
+            {
+                return "<unknown>";
+            }
+        }
     }
 
     private void UpdateSessionProgress(AssetLoadingSession session)
@@ -319,6 +648,11 @@ public partial class AndroidStartupLoadingScreen : Control
     }
 
     private static string[] GetWarmupScenePaths(string mode)
+    {
+        return GetWarmupScenePathsForMode(mode);
+    }
+
+    public static string[] GetWarmupScenePathsForMode(string mode)
     {
         if (string.Equals(mode, "off", StringComparison.OrdinalIgnoreCase))
             return Array.Empty<string>();
@@ -425,6 +759,7 @@ public partial class AndroidStartupLoadingScreen : Control
             PrepareMethods("MegaCrit.Sts2.Core.Nodes.Vfx.NSmokePuffVfx", "Create");
             PrepareMethods("MegaCrit.Sts2.Core.Nodes.Vfx.NDaggerSprayFlurryVfx", "Create");
             PrepareMethods("MegaCrit.Sts2.Core.Nodes.Vfx.NDaggerSprayImpactVfx", "Create");
+            PrepareMethods("MegaCrit.Sts2.Core.Nodes.Vfx.NShivThrowVfx", "Create", "ApplyTint", "ApplyRotation", "PlaySequence");
         }
         catch (Exception exception)
         {

@@ -114,6 +114,7 @@ public static class ModEntry
             MobileTapPreviewPatches.Apply(_harmony);
             MobileHandLayoutPatches.Apply(_harmony);
             IntentAnimationPatches.Apply(_harmony);
+            CombatAnimationWarmupPatches.Apply(_harmony);
             QuickRestartPatches.Apply(_harmony);
             LifecycleAndPerformancePatches.Apply(_harmony);
         });

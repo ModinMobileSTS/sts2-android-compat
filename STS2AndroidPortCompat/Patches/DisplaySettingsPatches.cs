@@ -16,6 +16,7 @@ namespace STS2Mobile.Patches;
 public static class DisplaySettingsPatches
 {
     internal const string ScreenRotationAuto = "auto";
+    internal const string ScreenRotationUserLandscape = "user_landscape";
     internal const string ScreenRotationLandscape = "landscape";
     internal const string ScreenRotationReverseLandscape = "reverse_landscape";
 
@@ -174,33 +175,55 @@ public static class DisplaySettingsPatches
     {
         if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
             return;
-        var orientation = GetAndroidScreenRotationMode() switch
+        var mode = GetAndroidScreenRotationMode();
+        if (mode == ScreenRotationUserLandscape)
+        {
+            ApplyAndroidActivityOrientation();
+            return;
+        }
+        var orientation = mode switch
         {
             ScreenRotationLandscape => DisplayServer.ScreenOrientation.Landscape,
             ScreenRotationReverseLandscape => DisplayServer.ScreenOrientation.ReverseLandscape,
             _ => DisplayServer.ScreenOrientation.SensorLandscape,
         };
         DisplayServer.ScreenSetOrientation(orientation);
+        ApplyAndroidActivityOrientation();
+    }
+
+    private static void ApplyAndroidActivityOrientation()
+    {
+        try
+        {
+            var javaClassWrapper = Engine.GetSingleton("JavaClassWrapper");
+            var wrapper = (GodotObject)javaClassWrapper.Call("wrap", "com.godot.game.GodotApp");
+            wrapper.Call("applySelectedScreenOrientationFromGame");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"GodotApp.applySelectedScreenOrientationFromGame bridge failed: {exception.Message}");
+        }
     }
 
     internal static string GetAndroidScreenRotationMode()
     {
         var fallback = AndroidSettingsBridge.GetBool("android_flip_screen_180", false)
             ? ScreenRotationReverseLandscape
-            : ScreenRotationAuto;
+            : ScreenRotationUserLandscape;
         return NormalizeScreenRotationMode(AndroidSettingsBridge.GetString("android_screen_rotation_mode", fallback));
     }
 
     internal static string NormalizeScreenRotationMode(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
-            return ScreenRotationAuto;
+            return ScreenRotationUserLandscape;
         var normalized = value.Trim().ToLowerInvariant().Replace('-', '_').Replace(" ", "_");
         return normalized switch
         {
             "none" or "normal" or "no_rotate" or "no_rotation" or ScreenRotationLandscape => ScreenRotationLandscape,
             "180" or "flip_180" or "rotate_180" or "reverse" or ScreenRotationReverseLandscape => ScreenRotationReverseLandscape,
-            _ => ScreenRotationAuto,
+            "user" or "system" or "follow_system" or ScreenRotationUserLandscape => ScreenRotationUserLandscape,
+            _ => ScreenRotationUserLandscape,
         };
     }
 

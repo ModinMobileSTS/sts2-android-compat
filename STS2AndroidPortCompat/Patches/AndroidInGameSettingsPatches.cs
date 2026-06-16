@@ -239,7 +239,7 @@ public static class AndroidInGameSettingsPatches
 
         AddHeader(content, T("显示 / 图形", "Display / Graphics"));
         AddSwitchRow(content, "shader_compatibility_mode", T("着色器兼容模式", "Shader compatibility"), false, _ => PatchHelper.Log("Shader compatibility setting changed; already-loaded materials may require a restart."));
-        AddStringPaginatorRow(content, "android_screen_rotation_mode", T("旋转模式", "Rotation mode"), GetScreenRotationModeOptions(), DisplaySettingsPatches.ScreenRotationAuto, value =>
+        AddStringPaginatorRow(content, "android_screen_rotation_mode", T("旋转模式", "Rotation mode"), GetScreenRotationModeOptions(), DisplaySettingsPatches.ScreenRotationUserLandscape, value =>
         {
             AndroidSettingsBridge.SetBool("android_flip_screen_180", value == DisplaySettingsPatches.ScreenRotationReverseLandscape);
             DisplaySettingsPatches.ApplyRuntimeDisplaySettings();
@@ -749,6 +749,7 @@ public static class AndroidInGameSettingsPatches
     private static (string Value, string Label)[] GetScreenRotationModeOptions() => new[]
     {
         (DisplaySettingsPatches.ScreenRotationAuto, T("自动", "Auto")),
+        (DisplaySettingsPatches.ScreenRotationUserLandscape, T("跟随系统", "Follow system")),
         (DisplaySettingsPatches.ScreenRotationLandscape, T("不旋转", "No rotation")),
         (DisplaySettingsPatches.ScreenRotationReverseLandscape, T("旋转 180°", "180°")),
     };

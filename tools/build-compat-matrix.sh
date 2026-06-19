@@ -95,6 +95,9 @@ compat_reference_dir_for_flavor() {
     original-v0.107.0)
       resolve_path "${STS2_ORIGINAL_V1070_REFERENCE_DIR:-$ROOT/refs/original-v0.107.0}"
       ;;
+    original-v0.107.1)
+      resolve_path "${STS2_ORIGINAL_V1071_REFERENCE_DIR:-$ROOT/refs/original-v0.107.1}"
+      ;;
     runtime|*)
       resolve_path "${STS2_RUNTIME_REFERENCE_DIR:-}"
       ;;

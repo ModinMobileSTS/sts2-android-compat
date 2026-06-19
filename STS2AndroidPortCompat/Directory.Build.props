@@ -12,6 +12,7 @@
         STS2_ORIGINAL_V103_REFERENCE_DIR
         STS2_ORIGINAL_V1061_REFERENCE_DIR
         STS2_ORIGINAL_V1070_REFERENCE_DIR
+        STS2_ORIGINAL_V1071_REFERENCE_DIR
 
       The refs/* directories are optional local symlink/copy locations and are not
       required by repository scripts.
@@ -20,13 +21,16 @@
     <OriginalReferenceDir>$(STS2_ORIGINAL_V103_REFERENCE_DIR)</OriginalReferenceDir>
     <Original1061ReferenceDir>$(STS2_ORIGINAL_V1061_REFERENCE_DIR)</Original1061ReferenceDir>
     <Original1070ReferenceDir>$(STS2_ORIGINAL_V1070_REFERENCE_DIR)</Original1070ReferenceDir>
+    <Original1071ReferenceDir>$(STS2_ORIGINAL_V1071_REFERENCE_DIR)</Original1071ReferenceDir>
     <OriginalReferenceDir Condition="'$(OriginalReferenceDir)' == ''">../refs/original</OriginalReferenceDir>
     <Original1061ReferenceDir Condition="'$(Original1061ReferenceDir)' == ''">../refs/original-v0.106.1</Original1061ReferenceDir>
     <Original1070ReferenceDir Condition="'$(Original1070ReferenceDir)' == ''">../refs/original-v0.107.0</Original1070ReferenceDir>
+    <Original1071ReferenceDir Condition="'$(Original1071ReferenceDir)' == ''">../refs/original-v0.107.1</Original1071ReferenceDir>
 
     <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original' And Exists('$(OriginalReferenceDir)/sts2.dll')">$(OriginalReferenceDir)</CompatReferenceDir>
     <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original-v0.106.1' And Exists('$(Original1061ReferenceDir)/sts2.dll')">$(Original1061ReferenceDir)</CompatReferenceDir>
     <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original-v0.107.0' And Exists('$(Original1070ReferenceDir)/sts2.dll')">$(Original1070ReferenceDir)</CompatReferenceDir>
+    <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And '$(ReferenceFlavor)' == 'original-v0.107.1' And Exists('$(Original1071ReferenceDir)/sts2.dll')">$(Original1071ReferenceDir)</CompatReferenceDir>
     <CompatReferenceDir Condition="'$(CompatReferenceDir)' == '' And Exists('$(RuntimeReferenceDir)/sts2.dll')">$(RuntimeReferenceDir)</CompatReferenceDir>
   </PropertyGroup>
 </Project>

@@ -135,6 +135,7 @@ public static class ModLoaderPatches
         var mods = GetMods();
         if (mods.Count == 0)
         {
+            SetModManagerInitializedState();
             PatchHelper.Log("[Mods] No Android mods detected.");
             return;
         }
@@ -154,7 +155,7 @@ public static class ModLoaderPatches
         {
             PatchHelper.Log($"[Mods] Android mod initialization loaded {ModManager.GetLoadedMods().Count()} mods ({GetMods().Count} total).");
         }
-        SetField("_initialized", true);
+        SetModManagerInitializedState();
 
         if (settings != null)
         {
@@ -196,6 +197,36 @@ public static class ModLoaderPatches
     {
         var field = typeof(ModManager).GetField(name, BindingFlags.NonPublic | BindingFlags.Static);
         field?.SetValue(null, value);
+    }
+
+    private static void SetModManagerInitializedState()
+    {
+        TrySetModManagerState("Initialized");
+        SetField("_initialized", true);
+    }
+
+    private static void TrySetModManagerState(string stateName)
+    {
+        try
+        {
+            var stateProperty = typeof(ModManager).GetProperty("State", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            if (stateProperty?.PropertyType?.IsEnum != true)
+                return;
+
+            var enumValue = Enum.Parse(stateProperty.PropertyType, stateName);
+            if (stateProperty.SetMethod != null)
+            {
+                stateProperty.SetValue(null, enumValue);
+                return;
+            }
+
+            var backingField = typeof(ModManager).GetField("<State>k__BackingField", BindingFlags.NonPublic | BindingFlags.Static);
+            backingField?.SetValue(null, enumValue);
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"[Mods] Failed to update ModManager.State to {stateName}: {exception.Message}");
+        }
     }
 
     private static object InvokeStatic(string name, params object[] args)

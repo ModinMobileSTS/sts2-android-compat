@@ -132,7 +132,26 @@ public static class LanMultiplayerPatches
 
     public static void InitialGameInfoBasicPostfix(ref InitialGameInfoMessage __result)
     {
-        __result.mods = GetMultiplayerCompatibilityModNameList(__result.mods);
+        var boxedResult = (object)__result;
+        if (SetInitialGameInfoModField(boxedResult, "mods"))
+        {
+            __result = (InitialGameInfoMessage)boxedResult;
+            return;
+        }
+
+        SetInitialGameInfoModField(boxedResult, "gameplayAffectingMods");
+        __result = (InitialGameInfoMessage)boxedResult;
+    }
+
+    private static bool SetInitialGameInfoModField(object message, string fieldName)
+    {
+        var field = AccessTools.Field(typeof(InitialGameInfoMessage), fieldName);
+        if (field == null)
+            return false;
+
+        var mods = field.GetValue(message) as List<string>;
+        field.SetValue(message, GetMultiplayerCompatibilityModNameList(mods));
+        return true;
     }
 
     public static void ModNameListPostfix(ref List<string> __result)

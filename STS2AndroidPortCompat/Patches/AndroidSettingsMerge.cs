@@ -54,6 +54,7 @@ public static class AndroidSettingsMerge
         "audio_compatibility_mode",
         "android_performance_overlay_enabled",
         "lan_player_id",
+        "lan_multiplayer_save_player_id",
         "lan_use_custom_player_id",
         "lan_use_custom_platform_player_id",
         "lan_custom_player_id",

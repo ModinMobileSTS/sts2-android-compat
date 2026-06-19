@@ -7,6 +7,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
@@ -43,6 +44,8 @@ public static class LanMultiplayerPatches
     private const int DefaultMaxPlayers = 4;
     private const int SteamMaxPlayers = 250;
     private const int MessageTypeCount = 51;
+    private const string LanPlayerIdSettingKey = "lan_player_id";
+    private const string LanMultiplayerSavePlayerIdSettingKey = "lan_multiplayer_save_player_id";
 
     private static readonly Dictionary<PlatformType, Dictionary<ulong, string>> PlayerNameOverrides = new();
     private static readonly Dictionary<Type, int> StableMessageTypeIds = new();
@@ -115,6 +118,7 @@ public static class LanMultiplayerPatches
         PatchHelper.Patch(harmony, typeof(JoinFlow), "Begin", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(JoinFlowBeginPrefix)));
         PatchHelper.Patch(harmony, typeof(NullPlatformUtilStrategy), "GetPlayerName", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(NullGetPlayerNamePrefix)));
         PatchHelper.Patch(harmony, typeof(NullPlatformUtilStrategy), "GetLocalPlayerId", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(NullGetLocalPlayerIdPrefix)));
+        PatchMultiplayerSaveCanonicalization(harmony);
         var settingsScreenType = typeof(NJoinFriendScreen).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.Screens.Settings.NSettingsScreen");
         if (settingsScreenType != null)
             PatchHelper.Patch(harmony, settingsScreenType, "_Ready", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(SettingsScreenReadyPostfix)));
@@ -190,6 +194,38 @@ public static class LanMultiplayerPatches
             return false;
         }
         return true;
+    }
+
+    public static void LoadAndCanonicalizeMultiplayerRunSavePrefix(object __instance, ref ulong __0)
+    {
+        try
+        {
+            var localPlayerId = __0;
+            var saveData = TryLoadRawMultiplayerSave(__instance);
+            var savePlayerIds = GetSavePlayerIds(saveData).Distinct().ToList();
+            if (savePlayerIds.Count == 0)
+                return;
+            if (savePlayerIds.Contains(localPlayerId))
+            {
+                RememberMultiplayerSavePlayerId(localPlayerId);
+                return;
+            }
+
+            if (TryResolveMultiplayerSavePlayerId(savePlayerIds, out var savePlayerId))
+            {
+                PatchHelper.Log($"LAN multiplayer save canonicalization uses saved player ID {savePlayerId} instead of current platform ID {localPlayerId}.");
+                __0 = savePlayerId;
+                RememberMultiplayerSavePlayerId(savePlayerId);
+            }
+            else
+            {
+                PatchHelper.Log($"LAN multiplayer save canonicalization kept current platform ID {localPlayerId}; save has multiple unmatched player IDs: {string.Join(",", savePlayerIds)}");
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"LAN multiplayer save ID compatibility patch failed: {exception}");
+        }
     }
 
     public static void SettingsScreenReadyPostfix(Node __instance)
@@ -335,6 +371,97 @@ public static class LanMultiplayerPatches
         }
 
         return true;
+    }
+
+    private static void PatchMultiplayerSaveCanonicalization(Harmony harmony)
+    {
+        try
+        {
+            var runSaveManagerType = typeof(SaveManager).Assembly.GetType("MegaCrit.Sts2.Core.Saves.Managers.RunSaveManager", throwOnError: false);
+            if (runSaveManagerType == null)
+            {
+                PatchHelper.Log("SKIPPED RunSaveManager.LoadAndCanonicalizeMultiplayerRunSave: type not found");
+                return;
+            }
+            PatchHelper.Patch(harmony, runSaveManagerType, "LoadAndCanonicalizeMultiplayerRunSave", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(LoadAndCanonicalizeMultiplayerRunSavePrefix)));
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"FAILED RunSaveManager.LoadAndCanonicalizeMultiplayerRunSave compatibility patch setup: {exception}");
+        }
+    }
+
+    private static object TryLoadRawMultiplayerSave(object runSaveManager)
+    {
+        var method = runSaveManager?.GetType().GetMethod("LoadMultiplayerRunSave", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        var result = method?.Invoke(runSaveManager, null);
+        if (result == null)
+            return null;
+        var success = result.GetType().GetProperty("Success", BindingFlags.Public | BindingFlags.Instance)?.GetValue(result);
+        if (success is bool ok && !ok)
+            return null;
+        return result.GetType().GetProperty("SaveData", BindingFlags.Public | BindingFlags.Instance)?.GetValue(result);
+    }
+
+    private static IEnumerable<ulong> GetSavePlayerIds(object saveData)
+    {
+        var players = saveData?.GetType().GetProperty("Players", BindingFlags.Public | BindingFlags.Instance)?.GetValue(saveData) as System.Collections.IEnumerable;
+        if (players == null)
+            yield break;
+        foreach (var player in players)
+        {
+            if (player == null)
+                continue;
+            var value = player.GetType().GetProperty("NetId", BindingFlags.Public | BindingFlags.Instance)?.GetValue(player);
+            if (value is ulong playerId && playerId > 0)
+                yield return playerId;
+        }
+    }
+
+    private static bool TryResolveMultiplayerSavePlayerId(IReadOnlyCollection<ulong> savePlayerIds, out ulong playerId)
+    {
+        playerId = 0;
+        if (savePlayerIds == null || savePlayerIds.Count == 0)
+            return false;
+
+        foreach (var candidate in GetStableMultiplayerSavePlayerIdCandidates())
+        {
+            if (candidate > 0 && savePlayerIds.Contains(candidate))
+            {
+                playerId = candidate;
+                return true;
+            }
+        }
+
+        if (savePlayerIds.Count == 1)
+        {
+            playerId = savePlayerIds.First();
+            return true;
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<ulong> GetStableMultiplayerSavePlayerIdCandidates()
+    {
+        if (TryGetStoredLanId(LanMultiplayerSavePlayerIdSettingKey, out var savedMultiplayerId))
+            yield return savedMultiplayerId;
+        if (TryGetStoredLanId(LanPlayerIdSettingKey, out var generatedLanId))
+            yield return generatedLanId;
+        yield return 1UL;
+    }
+
+    private static bool TryGetStoredLanId(string key, out ulong value)
+    {
+        value = 0;
+        var raw = AndroidSettingsBridge.GetString(key, string.Empty);
+        return ulong.TryParse(raw, out value) && value > 0;
+    }
+
+    private static void RememberMultiplayerSavePlayerId(ulong playerId)
+    {
+        if (playerId > 0)
+            SaveLanSetting(LanMultiplayerSavePlayerIdSettingKey, playerId);
     }
 
     private static bool IsSts2GameLobbyModLoaded()
@@ -484,7 +611,7 @@ public static class LanMultiplayerPatches
         if (TryGetConfiguredCustomPeerId(out var customPeerId))
             return customPeerId;
 
-        var current = AndroidSettingsBridge.GetString("lan_player_id", string.Empty);
+        var current = AndroidSettingsBridge.GetString(LanPlayerIdSettingKey, string.Empty);
         if (ulong.TryParse(current, out var saved) && saved > 1)
             return saved;
 
@@ -493,7 +620,7 @@ public static class LanMultiplayerPatches
         {
             generated = BitConverter.ToUInt64(System.Security.Cryptography.RandomNumberGenerator.GetBytes(sizeof(ulong))) & 0x7FFFFFFFFFFFFFFFUL;
         }
-        SaveLanSetting("lan_player_id", generated);
+        SaveLanSetting(LanPlayerIdSettingKey, generated);
         PatchHelper.Log($"Generated persistent LAN peer ID {generated}");
         return generated;
     }
@@ -611,6 +738,7 @@ public static class LanMultiplayerPatches
         if (!AndroidSettingsBridge.TryReadRaw(out var json) || string.IsNullOrWhiteSpace(json))
             json = "{}";
         var node = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
+        var previousJson = node.ToJsonString();
         node[key] = value switch
         {
             string s => s,
@@ -619,7 +747,9 @@ public static class LanMultiplayerPatches
             ulong ul => ul.ToString(),
             _ => value?.ToString(),
         };
-        AndroidSettingsBridge.TryWriteRaw(node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        var nextJson = node.ToJsonString();
+        if (!string.Equals(previousJson, nextJson, StringComparison.Ordinal))
+            AndroidSettingsBridge.TryWriteRaw(node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static void ConfigureLanJoinScreen(NJoinFriendScreen screen)

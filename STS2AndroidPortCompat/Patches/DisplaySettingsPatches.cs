@@ -223,6 +223,7 @@ public static class DisplaySettingsPatches
             "none" or "normal" or "no_rotate" or "no_rotation" or ScreenRotationLandscape => ScreenRotationLandscape,
             "180" or "flip_180" or "rotate_180" or "reverse" or ScreenRotationReverseLandscape => ScreenRotationReverseLandscape,
             "user" or "system" or "follow_system" or ScreenRotationUserLandscape => ScreenRotationUserLandscape,
+            ScreenRotationAuto or "sensor" or "sensor_landscape" or "auto_rotate" or "auto_rotation" => ScreenRotationAuto,
             _ => ScreenRotationUserLandscape,
         };
     }

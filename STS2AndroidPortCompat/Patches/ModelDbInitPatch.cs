@@ -8,6 +8,7 @@ using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
@@ -361,8 +362,37 @@ public static class ModelDbInitPatch
 
         ModelIdSerializationCache.Init();
         ModelDb.InitIds();
+        InitializeNetworkTypeCaches();
         DeferredModPatchQueue.FlushDeferredPatches("after ModelDb.InitIds");
         return false;
+    }
+
+    private static void InitializeNetworkTypeCaches()
+    {
+        InitializeNetworkTypeCache(typeof(MessageTypes), "MessageTypes");
+        InitializeNetworkTypeCache(typeof(ActionTypes), "ActionTypes");
+    }
+
+    private static void InitializeNetworkTypeCache(Type type, string label)
+    {
+        try
+        {
+            var initialize = type.GetMethod("Initialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null, Type.EmptyTypes, null);
+            if (initialize != null)
+            {
+                initialize.Invoke(null, null);
+                PatchHelper.Log($"ModelDbInitPatch: initialized {label} via explicit Initialize().");
+                return;
+            }
+
+            RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+            PatchHelper.Log($"ModelDbInitPatch: initialized {label} via static constructor.");
+        }
+        catch (Exception exception)
+        {
+            var root = GetRootException(exception);
+            PatchHelper.Log($"ModelDbInitPatch: failed to initialize {label}: {root.GetType().Name}: {root.Message}");
+        }
     }
 
     public static bool InitPrefix()

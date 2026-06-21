@@ -53,6 +53,7 @@ public static class AndroidSettingsMerge
         "fullscreen_render_size",
         "audio_compatibility_mode",
         "android_performance_overlay_enabled",
+        "android_high_refresh_rate_enabled",
         "lan_player_id",
         "lan_multiplayer_save_player_id",
         "lan_use_custom_player_id",

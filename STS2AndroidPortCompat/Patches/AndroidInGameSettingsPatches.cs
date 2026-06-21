@@ -283,6 +283,7 @@ public static class AndroidInGameSettingsPatches
 
         AddHeader(content, T("系统 / 兼容", "System / Compatibility"));
         AddSwitchRow(content, "preload_enabled", T("启用预加载", "Enable preload"), true, enabled => PreloadManager.Enabled = enabled);
+        AddSwitchRow(content, "android_high_refresh_rate_enabled", T("请求高刷新率", "Request high refresh rate"), true, null);
         AddSwitchRow(content, "preload_startup_common_enabled", T("启动通用资源", "Startup common resources"), true, null);
         AddSwitchRow(content, "preload_startup_main_menu_enabled", T("主菜单页面资源", "Main menu resources"), true, null);
         AddSwitchRow(content, "preload_menu_hotspots_enabled", T("常用菜单预热", "Menu hotspot warmup"), false, null);

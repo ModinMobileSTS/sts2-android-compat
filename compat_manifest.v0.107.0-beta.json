@@ -10,6 +10,7 @@
       "v0.107.0"
     ],
     "source": "original_pc_reference_v0.107.0",
+    "steam_branch": "public-beta",
     "sts2_dll_sha256": "4ad31f07b71820060b178ce3961f8589dbc94b3f8109428eaec8e7037ae2fdb3",
     "match": "exact-preferred"
   },

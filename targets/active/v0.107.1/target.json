@@ -9,6 +9,7 @@
   "reference_flavor": "original-v0.107.1",
   "channel": "stable",
   "source": "original_pc_reference_v0.107.1",
+  "steam_branch": "public",
   "sts2_dll_sha256": "a1f9e653f1e28e4076558fee1e60d218619cb7e057b887c6417f62c62c6d7a52",
   "compile_constants": [
     "STS2_TARGET_1071"

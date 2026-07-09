@@ -10,6 +10,7 @@
   "reference_flavor": "original",
   "channel": "stable",
   "source": "original_pc_reference_v0.103.x",
+  "steam_branch": "public",
   "compile_constants": [
     "STS2_TARGET_103X"
   ],

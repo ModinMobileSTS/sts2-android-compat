@@ -206,6 +206,7 @@ entry = {
     "versions": versions,
     "channel": data.get("channel", ""),
     "source": data.get("source", ""),
+    "steam_branch": data.get("steam_branch", data.get("game_branch", data.get("branch", ""))),
     "sts2_dll_sha256": data.get("sts2_dll_sha256", ""),
     "reference_flavor": data.get("reference_flavor", ""),
     "artifacts": {

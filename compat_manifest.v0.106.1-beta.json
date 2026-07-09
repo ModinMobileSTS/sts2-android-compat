@@ -7,6 +7,7 @@
   "target_game": {
     "version": "v0.106.1",
     "source": "original_pc_reference_v0.106.1",
+    "steam_branch": "public-beta",
     "sts2_dll_sha256": "f5a61e592926da3fa4ec7cdf1d584cffe9b6d8d3ef40f772b5f8a5f3b1415c55",
     "match": "exact-preferred"
   },

@@ -480,7 +480,13 @@ public static class CombatAnimationWarmupPatches
             return false;
         try
         {
-            MegaTrackEntry track = creature.SpineAnimation.SetAnimation(animationName, IsLoopingAnimationName(animationName), 0);
+            MegaTrackEntry track;
+#if STS2_TARGET_1080
+            creature.SpineAnimation.SetAnimation(animationName, IsLoopingAnimationName(animationName), 0);
+            track = creature.SpineAnimation.GetCurrentTrack();
+#else
+            track = creature.SpineAnimation.SetAnimation(animationName, IsLoopingAnimationName(animationName), 0);
+#endif
             if (track == null)
                 return false;
             try

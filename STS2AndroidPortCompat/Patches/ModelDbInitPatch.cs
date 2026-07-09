@@ -52,6 +52,7 @@ public static class ModelDbInitPatch
     private static FieldInfo _modelIdBackingField;
     private static bool _loggedModelIdSeedFailure;
     private static bool _containsPatched;
+    private static bool _abstractModelConstructorPatched;
     private static int _modInitializationContainsShieldDepth;
     private static readonly Dictionary<ModelId, Type> _preRegisteredPlaceholderOwnersById = new();
     private static readonly HashSet<Type> _loggedModInitializationContainsShieldTypes = new();
@@ -96,6 +97,7 @@ public static class ModelDbInitPatch
         }
 
         PatchContains(harmony);
+        PatchAbstractModelConstructor(harmony);
         PatchModelIdInitialization(harmony);
 
         try
@@ -113,6 +115,49 @@ public static class ModelDbInitPatch
         catch (Exception exception)
         {
             PatchHelper.Log($"FAILED OneTimeInitialization.ExecuteEssential: {exception}");
+        }
+    }
+
+    private static void PatchAbstractModelConstructor(Harmony harmony)
+    {
+        if (_abstractModelConstructorPatched)
+            return;
+
+        try
+        {
+            var constructor = typeof(AbstractModel).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+            var prefix = typeof(ModelDbInitPatch).GetMethod(nameof(AbstractModelConstructorPrefix), BindingFlags.Public | BindingFlags.Static);
+            if (constructor == null || prefix == null)
+            {
+                PatchHelper.Log("ModelDbInitPatch: AbstractModel constructor patch skipped; constructor or prefix not found.");
+                return;
+            }
+
+            harmony.Patch(constructor, prefix: new HarmonyMethod(prefix) { priority = Priority.First });
+            _abstractModelConstructorPatched = true;
+            PatchHelper.Log("Patched AbstractModel constructor for Android two-phase placeholder construction.");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"FAILED AbstractModel constructor two-phase guard: {exception}");
+        }
+    }
+
+    public static bool AbstractModelConstructorPrefix(AbstractModel __instance)
+    {
+        if (!_suppressContains || __instance == null)
+            return true;
+
+        try
+        {
+            var id = ModelDb.GetId(__instance.GetType());
+            TrySeedModelId(__instance, id);
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"ModelDbInitPatch: AbstractModel constructor guard failed for {DescribeType(__instance.GetType())}: {GetRootException(exception).Message}");
+            return true;
         }
     }
 
@@ -333,6 +378,7 @@ public static class ModelDbInitPatch
         // Mod.assembly, so refresh it right before each lifecycle point.
         RefreshModTypeCache("before LocManager.Initialize mod hooks");
         LocManager.Initialize();
+        InvokeOptionalStaticInit("MegaCrit.Sts2.Core.Modding.AssemblyInfo", "AssemblyInfo");
         RefreshModTypeCache("before ModelDb.Init mod hooks");
 
         // Register the FULL placeholder set (vanilla + mod types) BEFORE calling
@@ -361,10 +407,38 @@ public static class ModelDbInitPatch
         }
 
         ModelIdSerializationCache.Init();
+        InvokeOptionalStaticInit("MegaCrit.Sts2.Core.Saves.Runs.SavedPropertiesTypeCache", "SavedPropertiesTypeCache");
         ModelDb.InitIds();
         InitializeNetworkTypeCaches();
         DeferredModPatchQueue.FlushDeferredPatches("after ModelDb.InitIds");
         return false;
+    }
+
+    private static bool InvokeOptionalStaticInit(string typeName, string label)
+    {
+        var type = typeof(ModelDb).Assembly.GetType(typeName);
+        if (type == null)
+            return false;
+
+        var init = type.GetMethod("Init", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null, Type.EmptyTypes, null);
+        if (init == null)
+        {
+            PatchHelper.Log($"ModelDbInitPatch: {label}.Init not found; skipping optional startup step.");
+            return false;
+        }
+
+        try
+        {
+            init.Invoke(null, null);
+            PatchHelper.Log($"ModelDbInitPatch: initialized {label} via optional startup step.");
+            return true;
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException != null)
+        {
+            PatchHelper.Log($"ModelDbInitPatch: {label}.Init failed: {exception.InnerException.GetType().Name}: {exception.InnerException.Message}");
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
+            throw;
+        }
     }
 
     private static void InitializeNetworkTypeCaches()

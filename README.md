@@ -59,12 +59,14 @@ Build locally from the parent repository after configuring `.env`:
 ../tools/android/build-port-mod.sh
 ```
 
-Or build a standalone compatibility pack from this submodule with local environment variables:
+Or build the schema-2 family compatibility pack from this submodule with local environment variables:
 
 ```bash
 export DOTNET_BIN=/path/to/dotnet
-export STS2_ORIGINAL_V1071_REFERENCE_DIR=/path/to/original-v0.107.1/bin/Debug
-REFERENCE_FLAVOR=original-v0.107.1 ./tools/build-compat-pack.sh
+export STS2_ORIGINAL_V1080_REFERENCE_DIR=/path/to/original-v0.108.0/bin/Debug
+./tools/build-compat-matrix.sh --target v0.108.0
 ```
+
+`tools/build-compat-pack.sh` is the legacy schema-1 path; use it only when also providing a matching `COMPAT_MANIFEST`.
 
 The patched Godot runtime expects `STS2Mobile.dll` / `STS2Mobile.ModEntry`; the parent build script builds this skeleton under that assembly name and copies it into `android/assets/dotnet_bcl/`.

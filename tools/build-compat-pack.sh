@@ -54,14 +54,42 @@ PY
     STS2_ORIGINAL_V1071_ROOT="$(_sts2_abs "$STS2_ORIGINAL_V1071_ROOT")"
     STS2_ORIGINAL_V1071_REFERENCE_DIR="${STS2_ORIGINAL_V1071_REFERENCE_DIR:-$STS2_ORIGINAL_V1071_ROOT/.godot/mono/temp/bin/Debug}"
   fi
+  if [[ -n "${STS2_ORIGINAL_V1080_ROOT:-}" ]]; then
+    STS2_ORIGINAL_V1080_ROOT="$(_sts2_abs "$STS2_ORIGINAL_V1080_ROOT")"
+    STS2_ORIGINAL_V1080_REFERENCE_DIR="${STS2_ORIGINAL_V1080_REFERENCE_DIR:-$STS2_ORIGINAL_V1080_ROOT/.godot/mono/temp/bin/Debug}"
+  fi
   if [[ -n "${STS2_ORIGINAL_V103_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V103_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V103_REFERENCE_DIR")"; fi
   if [[ -n "${STS2_ORIGINAL_V1061_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1061_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1061_REFERENCE_DIR")"; fi
   if [[ -n "${STS2_ORIGINAL_V1070_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1070_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1070_REFERENCE_DIR")"; fi
   if [[ -n "${STS2_ORIGINAL_V1071_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1071_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1071_REFERENCE_DIR")"; fi
+  if [[ -n "${STS2_ORIGINAL_V1080_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1080_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1080_REFERENCE_DIR")"; fi
 fi
 
 DOTNET_BIN="${DOTNET_BIN:-dotnet}"
 REFERENCE_FLAVOR="${REFERENCE_FLAVOR:-original-v0.107.0}"
+compile_constants_for_flavor() {
+  case "$1" in
+    original)
+      printf '%s\n' "STS2_TARGET_103X"
+      ;;
+    original-v0.106.1)
+      printf '%s\n' "STS2_TARGET_1061"
+      ;;
+    original-v0.107.0)
+      printf '%s\n' "STS2_TARGET_1070"
+      ;;
+    original-v0.107.1)
+      printf '%s\n' "STS2_TARGET_1071"
+      ;;
+    original-v0.108.0)
+      printf '%s\n' "STS2_TARGET_1080"
+      ;;
+    *)
+      printf '%s\n' ""
+      ;;
+  esac
+}
+COMPILE_CONSTANTS="${COMPAT_COMPILE_CONSTANTS:-$(compile_constants_for_flavor "$REFERENCE_FLAVOR")}"
 if [[ -z "${COMPAT_REFERENCE_DIR:-}" ]]; then
   case "$REFERENCE_FLAVOR" in
     original)
@@ -75,6 +103,9 @@ if [[ -z "${COMPAT_REFERENCE_DIR:-}" ]]; then
       ;;
     original-v0.107.1)
       COMPAT_REFERENCE_DIR="${STS2_ORIGINAL_V1071_REFERENCE_DIR:-$ROOT/refs/original-v0.107.1}"
+      ;;
+    original-v0.108.0)
+      COMPAT_REFERENCE_DIR="${STS2_ORIGINAL_V1080_REFERENCE_DIR:-$ROOT/refs/original-v0.108.0}"
       ;;
     runtime|*)
       COMPAT_REFERENCE_DIR="${STS2_RUNTIME_REFERENCE_DIR:-}"
@@ -123,7 +154,21 @@ if [[ "${COMPAT_BUILD_GIT_DIRTY:-}" == "" ]]; then
   fi
 fi
 BUILD_TIMESTAMP_UTC="${COMPAT_BUILD_TIMESTAMP_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
-"$DOTNET_BIN" build "$PROJECT" -p:ReferenceFlavor="$REFERENCE_FLAVOR" -p:CompatReferenceDir="$COMPAT_REFERENCE_DIR" -p:_CompatGitBranch="$GIT_BRANCH" -p:_CompatGitCommit="$GIT_COMMIT" -p:_CompatGitCommitSubject="$GIT_SUBJECT" -p:_CompatGitDirty="$GIT_DIRTY" -p:_CompatBuildTimestampUtc="$BUILD_TIMESTAMP_UTC" -v:q
+MSBUILD_ARGS=(
+  "$PROJECT"
+  "-p:ReferenceFlavor=$REFERENCE_FLAVOR"
+  "-p:CompatReferenceDir=$COMPAT_REFERENCE_DIR"
+  "-p:_CompatGitBranch=$GIT_BRANCH"
+  "-p:_CompatGitCommit=$GIT_COMMIT"
+  "-p:_CompatGitCommitSubject=$GIT_SUBJECT"
+  "-p:_CompatGitDirty=$GIT_DIRTY"
+  "-p:_CompatBuildTimestampUtc=$BUILD_TIMESTAMP_UTC"
+  "-v:q"
+)
+if [[ -n "$COMPILE_CONSTANTS" ]]; then
+  MSBUILD_ARGS+=("-p:DefineConstants=$COMPILE_CONSTANTS")
+fi
+"$DOTNET_BIN" build "${MSBUILD_ARGS[@]}"
 cp -f "$ROOT/STS2AndroidPortCompat/bin/Debug/net9.0/STS2Mobile.dll" "$OUT_ROOT/$PACK_ID/STS2Mobile.dll"
 "$ROOT/tools/make-port-overlay-pck.py" "$OUT_ROOT/$PACK_ID/port_compat.pck"
 cp -f "$MANIFEST" "$OUT_ROOT/$PACK_ID/compat_manifest.json"

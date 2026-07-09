@@ -43,7 +43,11 @@ public static class LanMultiplayerPatches
     public const ushort DefaultPort = 33771;
     private const int DefaultMaxPlayers = 4;
     private const int SteamMaxPlayers = 250;
+#if STS2_TARGET_1080
+    private const int MessageTypeCount = 52;
+#else
     private const int MessageTypeCount = 51;
+#endif
     private const string LanPlayerIdSettingKey = "lan_player_id";
     private const string LanMultiplayerSavePlayerIdSettingKey = "lan_multiplayer_save_player_id";
 
@@ -103,6 +107,7 @@ public static class LanMultiplayerPatches
         "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerLeftMessage",
         "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerReconnectedMessage",
         "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerRejoinedMessage",
+        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RestSiteSkippedMessage",
     };
 
     public static void Apply(Harmony harmony)
@@ -896,7 +901,11 @@ public static class LanMultiplayerPatches
         hostInput.Text = host;
         portInput.Text = port.ToString();
         SaveJoinEndpoint(host, port);
+#if STS2_TARGET_1080
+        var joinFlow = new JoinFlow(new NetClientGameService());
+#else
         var joinFlow = new JoinFlow();
+#endif
         AccessTools.Field(typeof(NJoinFriendScreen), "_currentJoinFlow")?.SetValue(screen, joinFlow);
         await InvokeJoinGameAsync(screen, joinFlow, new ENetClientConnectionInitializer(GetOrCreateLocalPeerId(), host, port));
     }

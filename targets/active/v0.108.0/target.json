@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "target_id": "v0.108.0",
+  "status": "active",
+  "display_name": "STS2 v0.108.0",
+  "versions": [
+    "v0.108.0"
+  ],
+  "reference_flavor": "original-v0.108.0",
+  "channel": "stable",
+  "source": "original_pc_reference_v0.108.0",
+  "sts2_dll_sha256": "51a671bfeb937271af3e643d017396b13432098ed2b9debceb110c74939bbba1",
+  "compile_constants": [
+    "STS2_TARGET_1080"
+  ],
+  "notes": [
+    "Flattened target descriptor for the v0.108.0 stable compat line.",
+    "v0.108.0 changes JoinFlow to receive INetClientGameService in the constructor and makes Spine SetAnimation fire-and-forget."
+  ]
+}

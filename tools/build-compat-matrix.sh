@@ -158,6 +158,17 @@ if [[ "${COMPAT_BUILD_GIT_DIRTY:-}" == "" ]]; then
 fi
 BUILD_TIMESTAMP_UTC="${COMPAT_BUILD_TIMESTAMP_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
+msbuild_escape_property() {
+  local value="$1"
+  value="${value//'%'/'%25'}"
+  value="${value//';'/'%3B'}"
+  value="${value//','/'%2C'}"
+  printf '%s' "$value"
+}
+
+GIT_BRANCH_MSBUILD="$(msbuild_escape_property "$GIT_BRANCH")"
+GIT_SUBJECT_MSBUILD="$(msbuild_escape_property "$GIT_SUBJECT")"
+
 for target_file in "${TARGET_FILES[@]}"; do
   target_id="$(json_value "$target_file" target_id)"
   if [[ -n "$TARGET_FILTER" && "$target_id" != "$TARGET_FILTER" ]]; then
@@ -176,9 +187,9 @@ for target_file in "${TARGET_FILES[@]}"; do
     "$PROJECT"
     "-p:ReferenceFlavor=$reference_flavor"
     "-p:CompatReferenceDir=$reference_dir"
-    "-p:_CompatGitBranch=$GIT_BRANCH"
+    "-p:_CompatGitBranch=$GIT_BRANCH_MSBUILD"
     "-p:_CompatGitCommit=$GIT_COMMIT"
-    "-p:_CompatGitCommitSubject=$GIT_SUBJECT"
+    "-p:_CompatGitCommitSubject=$GIT_SUBJECT_MSBUILD"
     "-p:_CompatGitDirty=$GIT_DIRTY"
     "-p:_CompatBuildTimestampUtc=$BUILD_TIMESTAMP_UTC"
     "-v:q"

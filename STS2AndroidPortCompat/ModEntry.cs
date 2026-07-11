@@ -65,6 +65,13 @@ public static class ModEntry
         ApplyPatchGroup("Critical platform patches", () => PlatformPatches.Apply(_harmony));
         ApplyPatchGroup("Critical save path patches", () => SavePathPatches.Apply(_harmony));
 
+        // Keep the Java in-game panel bridge independent from the large feature
+        // patch group below.  A version-specific UI/input patch can legitimately
+        // fail to apply, but that must not leave the panel's inspector waiting
+        // forever for a host which was skipped only because it was last in that
+        // group.
+        ApplyPatchGroup("Developer tools bridge", () => STS2Mobile.DevTools.DevToolsHost.Start());
+
         ApplyPatchGroup("Mod framework and model patches", () =>
         {
             BaseLibCompatPatches.Apply(_harmony);

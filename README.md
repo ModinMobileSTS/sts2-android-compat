@@ -25,6 +25,12 @@ Current implementation (`STS2AndroidPortCompat`):
 - `MobileHandLayoutPatches` applies the companion `show_more_hand_card_text` /
   `show_more_hand_card_text_lift_height_percent` hand lift as a Harmony
   post-layout offset without rebuilding the game body.
+- `DevTools/` hosts the file-based Java bridge for the in-game overlay. It is
+  started independently from optional version-specific feature patches, writes a
+  `launcher/devtools/host.json` ready marker, and answers protocol-2 requests in
+  their own atomic `response-<uuid>.json` files (while retaining legacy
+  `response.json` compatibility): reflection inspector, companion settings
+  runtime apply, and overlay quick-restart.
 - `QuickRestartPatches` adds the built-in Android retry button on the pause menu
   when `quick_sl_enabled` is true and no external Quick Restart UI mod is loaded;
   it waits for pending run-save work, awaits saved-run setup before loading the

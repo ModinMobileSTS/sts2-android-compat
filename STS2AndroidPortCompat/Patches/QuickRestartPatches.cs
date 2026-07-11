@@ -106,6 +106,57 @@ public static class QuickRestartPatches
         }
     }
 
+    /// <summary>
+    /// Overlay / DevTools entry. Returns a JSON-friendly status object.
+    /// </summary>
+    public static System.Text.Json.Nodes.JsonObject TryQuickRestartFromOverlay()
+    {
+        var result = new System.Text.Json.Nodes.JsonObject();
+        try
+        {
+            if (!OS.HasFeature("mobile") && !OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
+            {
+                result["ok"] = false;
+                result["error"] = "Quick restart is only available on Android.";
+                return result;
+            }
+            if (!AndroidSettingsBridge.GetBool("quick_sl_enabled", true))
+            {
+                result["ok"] = false;
+                result["error"] = "Quick restart is disabled in settings.";
+                return result;
+            }
+            if (RunManager.Instance == null)
+            {
+                result["ok"] = false;
+                result["error"] = "RunManager is not ready.";
+                return result;
+            }
+            if (RunManager.Instance.NetService.Type != NetGameType.Singleplayer)
+            {
+                result["ok"] = false;
+                result["error"] = "Quick restart is only available in singleplayer.";
+                return result;
+            }
+            if (!SaveManager.Instance.HasRunSave)
+            {
+                result["ok"] = false;
+                result["error"] = "No run save available.";
+                return result;
+            }
+            TaskHelper.RunSafely(QuickLoadInternalAsync());
+            result["ok"] = true;
+            result["started"] = true;
+            return result;
+        }
+        catch (Exception exception)
+        {
+            result["ok"] = false;
+            result["error"] = exception.Message;
+            return result;
+        }
+    }
+
     private static void OnQuickRestartPressed(Control buttonContainer)
     {
         foreach (Node child in buttonContainer.GetChildren())

@@ -12,6 +12,7 @@ public static class GodotInspector
     private const int MaxTreeNodes = 220;
     private const int MaxProperties = 260;
     private const int MaxPreviewLength = 180;
+    private const int MaxScriptResultLength = 8192;
     private const string AuditLogRelative = "logs/dev-tools.log";
 
     public static JsonObject ListTree()
@@ -22,7 +23,7 @@ public static class GodotInspector
 
         var items = new JsonArray();
         var count = 0;
-        AddNodeRecursive(items, tree.Root, "", 0, ref count);
+        AddNodeRecursive(items, tree.Root, "", 0, true, ref count);
         return new JsonObject
         {
             ["items"] = items,
@@ -40,7 +41,6 @@ public static class GodotInspector
         var items = new JsonArray();
         var resolvedPath = SafePath(node);
         AddInfo(items, "Name", node.Name.ToString(), "StringName");
-        AddInfo(items, "Path", resolvedPath, "NodePath");
         AddInfo(items, "Class", ClassName(node), node.GetType().FullName);
         AddInfo(items, "Children", node.GetChildCount().ToString(), "int");
         AddInfo(items, "ProcessMode", node.ProcessMode.ToString(), node.ProcessMode.GetType().Name);
@@ -50,6 +50,7 @@ public static class GodotInspector
         {
             ["items"] = items,
             ["kind"] = "godot_node",
+            ["name"] = node.Name.ToString(),
             ["path"] = resolvedPath,
             ["type"] = ClassName(node),
         };
@@ -129,7 +130,14 @@ public static class GodotInspector
 
             var result = instance.Call("run", tree.Root, tree, node);
             Audit($"GODOT SCRIPT node={SafePath(node)} -> {Preview(result)}");
-            return new JsonObject { ["ok"] = true, ["preview"] = Preview(result), ["type"] = result.VariantType.ToString() };
+            return new JsonObject
+            {
+                ["ok"] = true,
+                ["hasResult"] = result.VariantType != Variant.Type.Nil,
+                ["preview"] = Preview(result),
+                ["result"] = ScriptResult(result),
+                ["type"] = result.VariantType.ToString(),
+            };
         }
         catch (Exception exception)
         {
@@ -140,7 +148,7 @@ public static class GodotInspector
 
     private static SceneTree GetTree() => Engine.GetMainLoop() as SceneTree;
 
-    private static void AddNodeRecursive(JsonArray items, Node node, string parentPath, int depth, ref int count)
+    private static void AddNodeRecursive(JsonArray items, Node node, string parentPath, int depth, bool lastSibling, ref int count)
     {
         if (node == null || count >= MaxTreeNodes)
             return;
@@ -153,19 +161,21 @@ public static class GodotInspector
             ["name"] = node.Name.ToString(),
             ["path"] = path,
             ["type"] = ClassName(node),
-            ["preview"] = childCount == 1 ? "1 child · " + path : childCount + " children · " + path,
             ["canNavigate"] = true,
             ["canEdit"] = false,
             ["parentPath"] = parentPath,
             ["hasChildren"] = childCount > 0,
+            ["lastSibling"] = lastSibling,
             ["depth"] = depth,
         });
         count++;
-        foreach (Node child in node.GetChildren())
+        var children = node.GetChildren();
+        for (var i = 0; i < children.Count; i++)
         {
             if (count >= MaxTreeNodes)
                 break;
-            AddNodeRecursive(items, child, path, depth + 1, ref count);
+            if (children[i] is Node child)
+                AddNodeRecursive(items, child, path, depth + 1, i == children.Count - 1, ref count);
         }
     }
 
@@ -484,14 +494,51 @@ public static class GodotInspector
         return ClassName(obj) + " · " + ObjectRef(obj);
     }
 
+    private static string ScriptResult(Variant value)
+    {
+        try
+        {
+            return value.VariantType switch
+            {
+                Variant.Type.Nil => "null",
+                Variant.Type.Bool => value.AsBool() ? "true" : "false",
+                Variant.Type.Int => value.AsInt64().ToString(),
+                Variant.Type.Float => value.AsDouble().ToString("G"),
+                Variant.Type.String => TruncateResult(value.AsString()),
+                Variant.Type.StringName => TruncateResult(value.AsStringName().ToString()),
+                Variant.Type.NodePath => TruncateResult(value.AsNodePath().ToString()),
+                Variant.Type.Object => TruncateResult(PreviewObject(value)),
+                _ => TruncateResult(value.ToString()),
+            };
+        }
+        catch (Exception exception)
+        {
+            return "!" + exception.GetBaseException().Message;
+        }
+    }
+
     private static JsonObject Fail(string message) => new JsonObject { ["ok"] = false, ["error"] = message };
 
     private static string Truncate(string value)
     {
+        return Truncate(value, MaxPreviewLength);
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
         if (string.IsNullOrEmpty(value))
             return string.Empty;
         value = value.Replace('\n', ' ').Replace('\r', ' ');
-        return value.Length <= MaxPreviewLength ? value : value.Substring(0, MaxPreviewLength) + "…";
+        return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "…";
+    }
+
+    private static string TruncateResult(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+        return value.Length <= MaxScriptResultLength
+            ? value
+            : value.Substring(0, MaxScriptResultLength) + "…";
     }
 
     private static void Audit(string message)

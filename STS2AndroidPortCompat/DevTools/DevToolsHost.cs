@@ -430,6 +430,45 @@ public static class DevToolsHost
                 response["payload"] = ReflectionInspector.SetValue(path, value);
                 break;
             }
+            case "godot.tree":
+                response["payload"] = GodotInspector.ListTree();
+                break;
+            case "godot.node":
+                response["payload"] = GodotInspector.InspectNode(request["node_path"]?.GetValue<string>() ?? "");
+                break;
+            case "godot.object":
+                response["payload"] = GodotInspector.InspectObject(request["object_ref"]?.GetValue<string>() ?? "");
+                break;
+            case "godot.set":
+            {
+                var writable = AndroidSettingsBridge.GetBool("android_dev_inspector_writable", false);
+                if (!writable)
+                {
+                    response["ok"] = false;
+                    response["error"] = "Inspector write mode is disabled.";
+                    break;
+                }
+                response["payload"] = GodotInspector.SetProperty(
+                    request["node_path"]?.GetValue<string>() ?? "",
+                    request["object_ref"]?.GetValue<string>() ?? "",
+                    request["property"]?.GetValue<string>() ?? "",
+                    request["value"]);
+                break;
+            }
+            case "godot.script":
+            {
+                var writable = AndroidSettingsBridge.GetBool("android_dev_inspector_writable", false);
+                if (!writable)
+                {
+                    response["ok"] = false;
+                    response["error"] = "Inspector write mode is disabled.";
+                    break;
+                }
+                response["payload"] = GodotInspector.RunGdScript(
+                    request["source"]?.GetValue<string>() ?? "",
+                    request["node_path"]?.GetValue<string>() ?? "");
+                break;
+            }
             default:
                 response["ok"] = false;
                 response["error"] = "Unknown op: " + op;

@@ -30,7 +30,8 @@ Current implementation (`STS2AndroidPortCompat`):
   `launcher/devtools/host.json` ready marker, and answers protocol-2 requests in
   their own atomic `response-<uuid>.json` files (while retaining legacy
   `response.json` compatibility): reflection inspector, collapsible Godot scene
-  tree, nested Godot object / node property inspection, and temporary GDScript execution,
+  tree, nested Godot object / node property inspection, and temporary GDScript execution
+  with non-Nil result capture,
   companion settings runtime apply, and overlay quick-restart.
 - `QuickRestartPatches` adds the built-in Android retry button on the pause menu
   when `quick_sl_enabled` is true and no external Quick Restart UI mod is loaded;

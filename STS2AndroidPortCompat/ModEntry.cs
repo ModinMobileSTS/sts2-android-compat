@@ -93,6 +93,11 @@ public static class ModEntry
             UiScalePatches.Apply(_harmony);
         });
 
+        ApplyPatchGroup("Android resource lifetime safety", () =>
+        {
+            AndroidAssetCacheLifecyclePatches.Apply(_harmony);
+        });
+
         ApplyPatchGroup("Mobile layout/input patches", () =>
         {
             MobileLayoutPatches.Apply(_harmony);

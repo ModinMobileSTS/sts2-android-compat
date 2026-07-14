@@ -16,6 +16,6 @@
   ],
   "notes": [
     "Flattened target descriptor for the old beta compat line.",
-    "LAN message IDs use the v0.106.1 INetMessageSubtypes order."
+    "LAN message IDs and serialization remain owned by the original v0.106.1 MessageTypes and NetMessageBus implementation."
   ]
 }

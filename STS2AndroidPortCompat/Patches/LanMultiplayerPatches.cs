@@ -19,13 +19,7 @@ using MegaCrit.Sts2.Core.Modding;
 using MegaCrit.Sts2.Core.Multiplayer;
 using MegaCrit.Sts2.Core.Multiplayer.Connection;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
-using MegaCrit.Sts2.Core.Multiplayer.Messages.Game;
-using MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Checksums;
-using MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor;
-using MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync;
 using MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby;
-using MegaCrit.Sts2.Core.Multiplayer.Serialization;
-using MegaCrit.Sts2.Core.Multiplayer.Messages;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
@@ -38,84 +32,27 @@ using STS2Mobile.Android;
 
 namespace STS2Mobile.Patches;
 
+/// <summary>
+/// Adapts the original LAN host/join flow for Android without owning the game
+/// wire protocol. Message IDs and packet serialization must remain entirely
+/// under the original <c>MessageTypes</c>/<c>NetMessageBus</c> implementation so
+/// Android stays compatible with an unmodified PC peer and with the original
+/// per-version and MOD-aware type ordering.
+/// </summary>
 public static class LanMultiplayerPatches
 {
     public const ushort DefaultPort = 33771;
     private const int DefaultMaxPlayers = 4;
     private const int SteamMaxPlayers = 250;
-#if STS2_TARGET_1080
-    private const int MessageTypeCount = 52;
-#else
-    private const int MessageTypeCount = 51;
-#endif
     private const string LanPlayerIdSettingKey = "lan_player_id";
     private const string LanMultiplayerSavePlayerIdSettingKey = "lan_multiplayer_save_player_id";
 
     private static readonly Dictionary<PlatformType, Dictionary<ulong, string>> PlayerNameOverrides = new();
-    private static readonly Dictionary<Type, int> StableMessageTypeIds = new();
-    private static readonly Dictionary<int, Type> StableMessageIdTypes = new();
-    private static readonly string[] StableMessageTypeOrder =
-    {
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.ActionEnqueuedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.CardRemovedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Checksums.ChecksumDataMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Checksums.StateDivergenceMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.CrystalSphereRewardsMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.ClearMapDrawingsMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.EndTurnPingMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.MapDrawingMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.MapDrawingModeChangedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.MapPingMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.ReactionMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor.RestSiteOptionHoveredMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.HookActionEnqueuedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.MerchantCardRemovalMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.PlayerChoiceMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RequestEnqueueActionMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RequestEnqueueHookActionMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RequestResumeActionAfterPlayerChoiceMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.ResumeActionAfterPlayerChoiceMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.RunAbandonedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.GoldLostMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.OptionIndexChosenMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.PeerInputMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RewardObtainedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RewardSelectedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RewardSetSkippedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.SharedEventOptionChosenMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.VotedForSharedEventOptionMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.SyncPlayerDataMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.SyncRngMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.TreasureChestOpenedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.HeartbeatRequestMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.HeartbeatResponseMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLoadJoinRequestMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLoadJoinResponseMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLobbyJoinRequestMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientLobbyJoinResponseMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientRejoinRequestMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.ClientRejoinResponseMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.InitialGameInfoMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyAscensionChangedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyBeginLoadedRunMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyBeginRunMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyModifiersChangedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyPlayerChangedCharacterMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbyPlayerSetReadyMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.LobbySeedChangedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerJoinedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerLeftMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerReconnectedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby.PlayerRejoinedMessage",
-        "MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Sync.RestSiteSkippedMessage",
-    };
 
     public static void Apply(Harmony harmony)
     {
         if (!ShouldApplyLocalLanPatches())
             return;
-
-        BuildMessageTypeMaps();
 
         PatchHelper.Patch(harmony, typeof(InitialGameInfoMessage), "Basic", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(InitialGameInfoBasicPostfix)));
         PatchHelper.Patch(harmony, typeof(ModManager), "GetGameplayRelevantModNameList", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(ModNameListPostfix)));
@@ -127,16 +64,13 @@ public static class LanMultiplayerPatches
         var settingsScreenType = typeof(NJoinFriendScreen).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.Screens.Settings.NSettingsScreen");
         if (settingsScreenType != null)
             PatchHelper.Patch(harmony, settingsScreenType, "_Ready", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(SettingsScreenReadyPostfix)));
-        PatchHelper.Patch(harmony, typeof(MessageTypes), "ToId", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(MessageToIdPrefix)));
-        PatchHelper.Patch(harmony, typeof(MessageTypes), "TryGetMessageType", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(TryGetMessageTypePrefix)));
-        PatchHelper.Patch(harmony, typeof(NetMessageBus), "TryDeserializeMessage", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(TryDeserializeMessagePrefix)));
         PatchHelper.Patch(harmony, typeof(NJoinFriendScreen), "OnSubmenuOpened", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(JoinFriendOpenedPrefix)));
         PatchHelper.Patch(harmony, typeof(NJoinFriendScreen), "RefreshButtonClicked", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(JoinFriendRefreshButtonPrefix)));
         PatchHelper.Patch(harmony, typeof(NJoinFriendScreen), "OnSubmenuClosed", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(JoinFriendClosedPostfix)));
         PatchHelper.Patch(harmony, typeof(NMultiplayerHostSubmenu), "StartHostAsync", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(HostSubmenuStartHostAsyncPrefix)));
         PatchHelper.Patch(harmony, typeof(NMultiplayerSubmenu), "StartHostAsync", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(MultiplayerSubmenuStartHostAsyncPrefix)));
 
-        PatchHelper.Log("LAN multiplayer compatibility patches applied.");
+        PatchHelper.Log("LAN multiplayer compatibility patches applied; using the game-native message protocol.");
     }
 
     public static void InitialGameInfoBasicPostfix(ref InitialGameInfoMessage __result)
@@ -251,56 +185,6 @@ public static class LanMultiplayerPatches
         catch (Exception exception)
         {
             PatchHelper.Log($"LAN max-player settings visibility patch failed: {exception.Message}");
-        }
-    }
-
-    public static bool MessageToIdPrefix(INetMessage message, ref int __result)
-    {
-        if (message == null || !StableMessageTypeIds.TryGetValue(message.GetType(), out var typeId))
-            return true;
-        __result = typeId;
-        return false;
-    }
-
-    public static bool TryGetMessageTypePrefix(int id, ref Type type, ref bool __result)
-    {
-        if (!StableMessageIdTypes.TryGetValue(id, out var stableType))
-            return true;
-        type = stableType;
-        __result = true;
-        return false;
-    }
-
-    public static bool TryDeserializeMessagePrefix(NetMessageBus __instance, byte[] packetBytes, ref INetMessage message, ref ulong? overrideSenderId, ref bool __result)
-    {
-        try
-        {
-            var reader = (PacketReader)AccessTools.Field(typeof(NetMessageBus), "_reader")?.GetValue(__instance);
-            if (reader == null)
-                return true;
-            overrideSenderId = null;
-            message = null;
-            reader.Reset(packetBytes);
-            if (packetBytes == null || packetBytes.Length == 0 || !StableMessageIdTypes.ContainsKey(packetBytes[0]))
-                return true;
-            var typeId = reader.ReadByte();
-            if (!StableMessageIdTypes.TryGetValue(typeId, out var type))
-            {
-                PatchHelper.Log($"LAN message decode failed: unknown message id {typeId}");
-                __result = false;
-                return false;
-            }
-            overrideSenderId = reader.ReadULong();
-            message = (INetMessage)Activator.CreateInstance(type);
-            message.Deserialize(reader);
-            __result = true;
-            return false;
-        }
-        catch (Exception exception)
-        {
-            PatchHelper.Log($"LAN message decode failed: {exception}");
-            __result = false;
-            return false;
         }
     }
 
@@ -550,27 +434,6 @@ public static class LanMultiplayerPatches
             || normalized.Equals("sts2_lobby_connect", StringComparison.OrdinalIgnoreCase)
             || normalized.Contains("sts2_lan_connect", StringComparison.OrdinalIgnoreCase)
             || normalized.Contains("sts2_game_lobby", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static void BuildMessageTypeMaps()
-    {
-        if (StableMessageTypeIds.Count > 0)
-            return;
-
-        var assembly = typeof(ActionEnqueuedMessage).Assembly;
-        for (var index = 0; index < StableMessageTypeOrder.Length; index++)
-        {
-            var typeName = StableMessageTypeOrder[index];
-            var type = assembly.GetType(typeName);
-            if (type == null)
-            {
-                PatchHelper.Log($"LAN message protocol type missing for this game build: {typeName}");
-                continue;
-            }
-            StableMessageTypeIds[type] = index;
-            StableMessageIdTypes[index] = type;
-        }
-        PatchHelper.Log($"Stable LAN message protocol mapped {StableMessageTypeIds.Count}/{MessageTypeCount} built-in message types.");
     }
 
     private static List<string> GetMultiplayerCompatibilityModNameList(List<string> baseModNames)

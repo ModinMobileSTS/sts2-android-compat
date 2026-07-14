@@ -84,6 +84,13 @@ when it is off, or when `sts2_lan_connect` / STS2 Game Lobby is already loaded,
 the whole local LAN patch set is skipped to avoid protocol conflicts with that
 MOD.
 
+The LAN patch deliberately does not patch `MessageTypes.ToId`,
+`MessageTypes.TryGetMessageType`, or `NetMessageBus.TryDeserializeMessage`.
+The matching original game assembly remains the sole wire-protocol
+implementation, including its per-version and MOD-aware message ordering, so an
+Android peer uses the same codec as an unmodified PC peer. Protocol-affecting
+MODs must still match on both peers.
+
 Local mod enable/disable compatibility is handled in
 `Patches/AndroidSettingsPatches.cs`: companion `mod_settings.mods_enabled`,
 `mod_list[]`, and legacy `disabled_mods[]` are projected into the runtime

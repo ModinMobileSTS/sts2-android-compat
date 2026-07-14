@@ -55,11 +55,12 @@ Current implementation (`STS2AndroidPortCompat`):
   companion `touch_lift_preview` / `touch_lift_retap_action` settings.
 - `AndroidInputCompatPatches` bridges Android back-button, two-finger inspect
   right-click, and trigger-axis controller compatibility into original input.
-- `LanMultiplayerPatches` bridges companion LAN settings by using stable ENet
-  message IDs, adding configured compatibility mod names to multiplayer mod
-  checks, honoring persistent/custom LAN player IDs, replacing the no-Steam join
-  screen with host/port input, and hosting ENet games with the configured player
-  capacity.
+- `LanMultiplayerPatches` bridges companion LAN settings while leaving the
+  original `MessageTypes` ID assignment and `NetMessageBus`
+  serialization/deserialization untouched. It adds configured compatibility
+  mod names to multiplayer checks, honors persistent/custom LAN player IDs,
+  replaces the no-Steam join screen with host/port input, and hosts ENet games
+  with the configured player capacity.
 
 Build locally from the parent repository after configuring `.env`:
 

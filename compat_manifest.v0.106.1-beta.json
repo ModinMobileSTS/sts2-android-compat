@@ -2,7 +2,7 @@
   "schema": 1,
   "pack_id": "sts2-android-compat-v0.106.1-beta",
   "display_name": "STS2 Android Compatibility beta for v0.106.1",
-  "compat_version": "0.2.0-beta.1061",
+  "compat_version": "0.2.1-beta.1061",
   "channel": "beta",
   "target_game": {
     "version": "v0.106.1",
@@ -21,6 +21,6 @@
   },
   "notes": [
     "Built from the extracted Android compat patcher branch compat/v0.106.1-beta.",
-    "LAN message IDs were updated for the v0.106.1 INetMessageSubtypes order."
+    "LAN message IDs and deserialization are delegated to the original v0.106.1 game implementation for PC protocol compatibility."
   ]
 }

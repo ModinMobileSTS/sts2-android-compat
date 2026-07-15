@@ -15,10 +15,74 @@ namespace STS2Mobile.Patches;
 
 public static class DisplaySettingsPatches
 {
+    internal enum ContentScaleOwner
+    {
+        Unknown,
+        UiScaleAuto,
+        FixedAspect,
+    }
+
+    private enum DeferredDisplayApplyKind
+    {
+        None,
+        ContentScale,
+        DisplaySettings,
+        RuntimeSettings,
+    }
+
+    private readonly struct ContentScaleTarget
+    {
+        internal readonly ContentScaleOwner Owner;
+        internal readonly Window.ContentScaleModeEnum Mode;
+        internal readonly Window.ContentScaleAspectEnum Aspect;
+        internal readonly Vector2I Size;
+        internal readonly float Factor;
+
+        internal ContentScaleTarget(
+            ContentScaleOwner owner,
+            Window.ContentScaleModeEnum mode,
+            Window.ContentScaleAspectEnum aspect,
+            Vector2I size,
+            float factor)
+        {
+            Owner = owner;
+            Mode = mode;
+            Aspect = aspect;
+            Size = size;
+            Factor = factor;
+        }
+    }
+
+    private readonly struct RenderTargetPlan
+    {
+        internal readonly Vector2I NativeSize;
+        internal readonly Vector2I EffectiveSize;
+        internal readonly Vector2 Scale;
+        internal readonly bool IsCustom;
+        internal readonly bool WasClamped;
+
+        internal RenderTargetPlan(
+            Vector2I nativeSize,
+            Vector2I effectiveSize,
+            Vector2 scale,
+            bool isCustom,
+            bool wasClamped)
+        {
+            NativeSize = nativeSize;
+            EffectiveSize = effectiveSize;
+            Scale = scale;
+            IsCustom = isCustom;
+            WasClamped = wasClamped;
+        }
+    }
+
     internal const string ScreenRotationAuto = "auto";
     internal const string ScreenRotationUserLandscape = "user_landscape";
     internal const string ScreenRotationLandscape = "landscape";
     internal const string ScreenRotationReverseLandscape = "reverse_landscape";
+
+    private const int MinimumRenderTargetDimension = 2;
+    private const int MaximumDynamicRenderTargetDimension = 4096;
 
     private static readonly StringName[] FontSizeOverrideNames =
     {
@@ -30,12 +94,31 @@ public static class DisplaySettingsPatches
         "mono_font_size",
     };
 
-    private static bool? _lastUseCustomRenderSize;
+    private static ContentScaleOwner _contentScaleOwner;
+    private static ContentScaleOwner _lastContentScaleOwner;
     private static Vector2I _lastRenderSize = new(-1, -1);
+    private static Vector2I _lastNativeRenderTargetSize = new(-1, -1);
+    private static Vector2I _lastEffectiveRenderTargetSize = new(-1, -1);
+    private static bool? _lastRenderTargetWasCustom;
+    private static Vector2I _lastContentScaleSize = new(-1, -1);
     private static float _lastScaleFactor = -1f;
     private static Window.ContentScaleAspectEnum? _lastScaleAspect;
     private static AspectRatioSetting? _lastAspect;
+    private static int _lastUiScalePercent = -1;
     private static bool? _hasSourcePortMegaTextScaling;
+    private static bool _isApplyingDisplaySettings;
+    private static bool _deferredDisplayApplyQueued;
+    private static DeferredDisplayApplyKind _deferredDisplayApplyKind;
+    private static string _deferredDisplayApplyReason = "unspecified";
+    private static long _resumeGeneration;
+    private static long _resumeValidationScheduledGeneration = -1;
+    private static long _resumeRepairAttemptedGeneration = -1;
+    private static long _contentScaleTargetRevision;
+    private static bool _hasLatestContentScaleTarget;
+    private static ContentScaleTarget _latestContentScaleTarget;
+    private static Window _observedRootWindow;
+
+    internal static ContentScaleOwner CurrentContentScaleOwner => _contentScaleOwner;
 
     public static void Apply(Harmony harmony)
     {
@@ -54,7 +137,7 @@ public static class DisplaySettingsPatches
             ApplyFontSizeSetting();
             ApplyAndroidScreenOrientationSetting();
             ApplyDisplaySettingsPostfix();
-            Callable.From(ApplyDisplaySettingsPostfix).CallDeferred();
+            RequestDeferredContentScaleApply("graphics-preferences-initialized");
             PatchHelper.Log($"Applied Android graphics bridge: fps(original)={Engine.MaxFps}, scale={GetGlobalScale():0.##}, font={GetUiFontScalePercent()}%, render={GetFullscreenRenderSize()}");
         }
         catch (Exception exception)
@@ -65,57 +148,7 @@ public static class DisplaySettingsPatches
 
     public static void ApplyDisplaySettingsPostfix()
     {
-        try
-        {
-            AndroidSettingsPatches.ApplyCompanionSettingsToRuntimeSave();
-            PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", true);
-            var settings = SaveManager.Instance?.SettingsSave;
-            if (settings != null)
-                NGame.ApplySyncSetting();
-            var window = GetRootWindow();
-            if (window == null)
-                return;
-
-            var renderSize = GetFullscreenRenderSize();
-            var useCustomRenderSize = (settings?.Fullscreen ?? true) && renderSize.X > 0 && renderSize.Y > 0;
-            var aspect = settings?.AspectRatioSetting ?? AspectRatioSetting.Auto;
-            var scaleFactor = GetGlobalScale();
-
-            var previousUseCustomRenderSize = _lastUseCustomRenderSize;
-            var previousAspect = _lastAspect;
-
-            SetContentScaleModeIfChanged(window, useCustomRenderSize ? Window.ContentScaleModeEnum.Viewport : Window.ContentScaleModeEnum.CanvasItems);
-            if (useCustomRenderSize)
-            {
-                if (aspect != AspectRatioSetting.Auto)
-                    SetContentScaleAspectIfChanged(window, Window.ContentScaleAspectEnum.Keep);
-                SetContentScaleSizeIfChanged(window, renderSize);
-            }
-            else if (aspect != AspectRatioSetting.Auto)
-            {
-                SetContentScaleAspectIfChanged(window, Window.ContentScaleAspectEnum.Keep);
-                ApplyAspectContentScaleSize(window, aspect);
-            }
-            else if (previousUseCustomRenderSize == true || (previousAspect.HasValue && previousAspect.Value != AspectRatioSetting.Auto))
-            {
-                ApplyAutoAspectContentScaleSize(window);
-            }
-            SetContentScaleFactorIfChanged(window, scaleFactor);
-
-            if (_lastUseCustomRenderSize != useCustomRenderSize || _lastRenderSize != renderSize || !Mathf.IsEqualApprox(_lastScaleFactor, scaleFactor) || _lastScaleAspect != window.ContentScaleAspect || _lastAspect != aspect)
-            {
-                _lastUseCustomRenderSize = useCustomRenderSize;
-                _lastRenderSize = renderSize;
-                _lastScaleFactor = scaleFactor;
-                _lastScaleAspect = window.ContentScaleAspect;
-                _lastAspect = aspect;
-                PatchHelper.Log($"[Display] Android source-port scaling applied: custom={useCustomRenderSize}, render={renderSize}, mode={window.ContentScaleMode}, aspect={window.ContentScaleAspect}, scale={scaleFactor:0.##}, surface={DisplayServer.WindowGetSize()} (no runtime WindowSetSize)");
-            }
-        }
-        catch (Exception exception)
-        {
-            PatchHelper.Log($"ApplyDisplaySettingsPostfix failed: {exception}");
-        }
+        ApplyDisplaySettings(DeferredDisplayApplyKind.DisplaySettings, "NGame.ApplyDisplaySettings");
     }
 
     public static void ReadyPostfix()
@@ -126,7 +159,7 @@ public static class DisplaySettingsPatches
             if (window != null)
                 ApplyFontSizeOverridesRecursive(window);
             ApplyDisplaySettingsPostfix();
-            Callable.From(ApplyDisplaySettingsPostfix).CallDeferred();
+            RequestDeferredContentScaleApply("node-ready");
         }
         catch (Exception exception)
         {
@@ -140,11 +173,10 @@ public static class DisplaySettingsPatches
         {
             switch (what)
             {
-                case (int)Node.NotificationWMWindowFocusIn:
                 case (int)Node.NotificationApplicationResumed:
-                case (int)Node.NotificationApplicationFocusIn:
                     AndroidSettingsBridge.InvalidateCache();
-                    ApplyRuntimeDisplaySettings();
+                    var generation = ++_resumeGeneration;
+                    RequestDeferredDisplayApply(DeferredDisplayApplyKind.RuntimeSettings, $"application-resumed#{generation}");
                     break;
             }
         }
@@ -156,19 +188,418 @@ public static class DisplaySettingsPatches
 
     public static void ApplyRuntimeDisplaySettings()
     {
+        ApplyDisplaySettings(DeferredDisplayApplyKind.RuntimeSettings, "runtime-settings");
+    }
+
+    internal static void ApplyUiScaleContentScaleSettings()
+    {
+        ApplyDisplaySettings(DeferredDisplayApplyKind.ContentScale, "ui-scale-changed");
+    }
+
+    internal static void RequestDeferredContentScaleApply(string reason)
+    {
+        // ContentScale setters synchronously emit window-change callbacks. Ignore those
+        // callbacks while this coordinator owns the mutation so they cannot form a loop.
+        if (_isApplyingDisplaySettings)
+            return;
+        RequestDeferredDisplayApply(DeferredDisplayApplyKind.ContentScale, reason);
+    }
+
+    private static void ApplyDisplaySettings(DeferredDisplayApplyKind applyKind, string reason)
+    {
+        if (_isApplyingDisplaySettings)
+        {
+            // Preserve one follow-up for a genuine reentrant settings request. The
+            // deferred queue is single-flight and compare-before-set makes it finite.
+            RequestDeferredDisplayApply(applyKind, $"reentrant-{reason}");
+            return;
+        }
+
+        _isApplyingDisplaySettings = true;
         try
         {
-            AndroidSettingsPatches.ApplyCompanionSettingsToRuntimeSave();
-            PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", true);
-            ApplyAndroidScreenOrientationSetting();
-            ApplyFontSizeSetting();
-            ApplyDisplaySettingsPostfix();
-            NGame.ApplySyncSetting();
+            if (applyKind is DeferredDisplayApplyKind.DisplaySettings or DeferredDisplayApplyKind.RuntimeSettings)
+            {
+                AndroidSettingsPatches.ApplyCompanionSettingsToRuntimeSave();
+                PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", true);
+            }
+            if (applyKind == DeferredDisplayApplyKind.RuntimeSettings)
+            {
+                ApplyAndroidScreenOrientationSetting();
+                ApplyFontSizeSetting();
+            }
+
+            var settings = SaveManager.Instance?.SettingsSave;
+            if ((applyKind is DeferredDisplayApplyKind.DisplaySettings or DeferredDisplayApplyKind.RuntimeSettings) && settings != null)
+                NGame.ApplySyncSetting();
+            ApplyContentScaleSettings(settings, reason);
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"ApplyRuntimeDisplaySettings failed: {exception.Message}");
+            PatchHelper.Log($"ApplyDisplaySettings failed ({reason}): {exception}");
         }
+        finally
+        {
+            _isApplyingDisplaySettings = false;
+        }
+    }
+
+    private static void ApplyContentScaleSettings(SettingsSave settings, string reason)
+    {
+        var window = GetRootWindow();
+        if (window == null)
+            return;
+
+        EnsureRootWindowObservation(window);
+
+        var renderSize = GetFullscreenRenderSize();
+        var aspect = settings?.AspectRatioSetting ?? AspectRatioSetting.Auto;
+        var scaleFactor = GetGlobalScale();
+        UiScalePatches.EnsureUiScaleLoaded();
+
+        // Render resolution must never become the root Window's logical size: doing
+        // so changes the relative size of fixed-pixel controls/cards whenever the
+        // preset changes. Keep one stable CanvasItems layout target, then independently
+        // resize only the renderer-side root viewport below.
+        var owner = aspect != AspectRatioSetting.Auto
+            ? ContentScaleOwner.FixedAspect
+            : ContentScaleOwner.UiScaleAuto;
+        var targetMode = Window.ContentScaleModeEnum.CanvasItems;
+        var targetAspect = owner == ContentScaleOwner.FixedAspect
+            ? Window.ContentScaleAspectEnum.Keep
+            : Window.ContentScaleAspectEnum.Expand;
+        var targetSize = owner == ContentScaleOwner.FixedAspect
+            ? GetAspectContentScaleSize(aspect)
+            : UiScalePatches.GetScaledContentSize();
+
+        var target = new ContentScaleTarget(owner, targetMode, targetAspect, targetSize, scaleFactor);
+        long targetRevision = TrackContentScaleTarget(target);
+        int changedProperties = ApplyContentScaleTarget(window, target);
+        ApplyDynamicRenderTarget(window, renderSize, reason);
+
+        bool isResumeApply = reason.Contains("application-resumed", StringComparison.Ordinal);
+        if (isResumeApply
+            || _lastContentScaleOwner != owner
+            || _lastRenderSize != renderSize
+            || _lastContentScaleSize != targetSize
+            || !Mathf.IsEqualApprox(_lastScaleFactor, scaleFactor)
+            || _lastScaleAspect != targetAspect
+            || _lastAspect != aspect
+            || _lastUiScalePercent != UiScalePatches.UiScalePercent)
+        {
+            _lastContentScaleOwner = owner;
+            _lastRenderSize = renderSize;
+            _lastContentScaleSize = targetSize;
+            _lastScaleFactor = scaleFactor;
+            _lastScaleAspect = targetAspect;
+            _lastAspect = aspect;
+            _lastUiScalePercent = UiScalePatches.UiScalePercent;
+            PatchHelper.Log($"[Display] ContentScale owner={owner}, reason={reason}, changed={changedProperties}, renderRequest={renderSize}, logicalContent={targetSize}, mode={targetMode}, aspect={targetAspect}, scale={scaleFactor:0.##}, uiScale={UiScalePatches.UiScalePercent}%, actualSurface={DisplayServer.WindowGetSize()}");
+        }
+
+        if (isResumeApply)
+            ScheduleResumeConsistencyValidation(_resumeGeneration, targetRevision, target);
+    }
+
+    private static long TrackContentScaleTarget(ContentScaleTarget target)
+    {
+        if (!_hasLatestContentScaleTarget || !AreContentScaleTargetsEqual(_latestContentScaleTarget, target))
+        {
+            _latestContentScaleTarget = target;
+            _hasLatestContentScaleTarget = true;
+            _contentScaleTargetRevision++;
+        }
+        return _contentScaleTargetRevision;
+    }
+
+    private static int ApplyContentScaleTarget(Window window, ContentScaleTarget target)
+    {
+        // Publish ownership before any setter. Godot setters synchronously notify the
+        // window tree, so callbacks must observe the new owner rather than stale state.
+        _contentScaleOwner = target.Owner;
+        int changedProperties = 0;
+        if (SetContentScaleModeIfChanged(window, target.Mode))
+            changedProperties++;
+        if (SetContentScaleAspectIfChanged(window, target.Aspect))
+            changedProperties++;
+        if (SetContentScaleSizeIfChanged(window, target.Size))
+            changedProperties++;
+        if (SetContentScaleFactorIfChanged(window, target.Factor))
+            changedProperties++;
+        return changedProperties;
+    }
+
+    private static void EnsureRootWindowObservation(Window window)
+    {
+        if (ReferenceEquals(_observedRootWindow, window))
+            return;
+
+        if (_observedRootWindow != null && GodotObject.IsInstanceValid(_observedRootWindow))
+        {
+            try
+            {
+                _observedRootWindow.SizeChanged -= OnRootWindowSizeChanged;
+            }
+            catch
+            {
+                // A replaced root can already be tearing down; the new root still
+                // needs its observer installed below.
+            }
+        }
+
+        _observedRootWindow = window;
+        window.SizeChanged += OnRootWindowSizeChanged;
+    }
+
+    private static void OnRootWindowSizeChanged()
+    {
+        // Android resize/rotation restores the renderer-side root viewport to its
+        // native size. Reapply once after Godot finishes the current resize sequence.
+        RequestDeferredContentScaleApply("root-window-size-changed");
+    }
+
+    private static void ApplyDynamicRenderTarget(Window window, Vector2I renderRequest, string reason)
+    {
+        var visibleSize = window.GetVisibleRect().Size;
+        var stretchTransform = window.GetStretchTransform();
+        var stretchScale = stretchTransform.Scale;
+        var nativeSize = new Vector2I(
+            Mathf.RoundToInt(Mathf.Abs(visibleSize.X * stretchScale.X)),
+            Mathf.RoundToInt(Mathf.Abs(visibleSize.Y * stretchScale.Y)));
+        if (!IsUsableRenderTargetSize(nativeSize))
+        {
+            PatchHelper.Log($"[Display] Dynamic render target skipped ({reason}): invalid native attachment size={nativeSize}, visible={visibleSize}, stretchScale={stretchScale}.");
+            return;
+        }
+
+        var plan = BuildRenderTargetPlan(nativeSize, renderRequest);
+        var baseCanvasTransform = stretchTransform * window.GlobalCanvasTransform;
+        var rendererCanvasTransform = baseCanvasTransform.Scaled(plan.Scale);
+        var viewportRid = window.GetViewportRid();
+
+        // Keep the Android Surface and Window node untouched. The renderer draws into
+        // the requested offscreen target and Godot's existing root attachment blits it
+        // back to the native CanvasItems rectangle. Only the RenderingServer transform
+        // is compensated; the scene-side transform used for input remains unchanged.
+        try
+        {
+            RenderingServer.ViewportSetRenderDirectToScreen(viewportRid, false);
+            RenderingServer.ViewportSetSize(viewportRid, plan.EffectiveSize.X, plan.EffectiveSize.Y);
+            RenderingServer.ViewportSetGlobalCanvasTransform(viewportRid, rendererCanvasTransform);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                RenderingServer.ViewportSetSize(viewportRid, nativeSize.X, nativeSize.Y);
+                RenderingServer.ViewportSetGlobalCanvasTransform(viewportRid, baseCanvasTransform);
+            }
+            catch (Exception restoreException)
+            {
+                PatchHelper.Log($"[Display] WARNING: Failed to restore native render target after dynamic apply failure ({reason}): {restoreException.Message}");
+            }
+            PatchHelper.Log($"[Display] Dynamic render target failed ({reason}): {exception}");
+            return;
+        }
+
+        bool stateChanged = _lastNativeRenderTargetSize != plan.NativeSize
+            || _lastEffectiveRenderTargetSize != plan.EffectiveSize
+            || _lastRenderTargetWasCustom != plan.IsCustom;
+        _lastNativeRenderTargetSize = plan.NativeSize;
+        _lastEffectiveRenderTargetSize = plan.EffectiveSize;
+        _lastRenderTargetWasCustom = plan.IsCustom;
+
+        bool lifecycleReapply = reason.Contains("application-resumed", StringComparison.Ordinal)
+            || reason.Contains("root-window-size-changed", StringComparison.Ordinal);
+        if (stateChanged || lifecycleReapply)
+        {
+            PatchHelper.Log($"[Display] RenderTarget reason={reason}, request={renderRequest}, native={plan.NativeSize}, effective={plan.EffectiveSize}, custom={plan.IsCustom}, clamped={plan.WasClamped}, serverScale={plan.Scale}, logicalVisible={visibleSize}, stretchScale={stretchScale}, surface={DisplayServer.WindowGetSize()}");
+        }
+    }
+
+    private static RenderTargetPlan BuildRenderTargetPlan(Vector2I nativeSize, Vector2I renderRequest)
+    {
+        if (!IsUsableRenderTargetSize(renderRequest))
+            return new RenderTargetPlan(nativeSize, nativeSize, Vector2.One, isCustom: false, wasClamped: false);
+
+        // Presets are reference rectangles (for example 1280x720). Match CanvasItems
+        // Expand semantics by scaling the current native attachment uniformly until it
+        // covers that rectangle. Ultrawide/narrow aspect ratios therefore get a wider
+        // or taller effective target instead of non-uniform pixels or changed layout.
+        double requestedScale = Math.Max(
+            (double)renderRequest.X / nativeSize.X,
+            (double)renderRequest.Y / nativeSize.Y);
+        double targetWidth = nativeSize.X * requestedScale;
+        double targetHeight = nativeSize.Y * requestedScale;
+
+        int maximumDimension = Math.Max(
+            MaximumDynamicRenderTargetDimension,
+            Math.Max(nativeSize.X, nativeSize.Y));
+        double clampScale = Math.Min(
+            1.0,
+            Math.Min(maximumDimension / targetWidth, maximumDimension / targetHeight));
+        bool wasClamped = clampScale < 0.999999;
+        targetWidth *= clampScale;
+        targetHeight *= clampScale;
+
+        var effectiveSize = new Vector2I(
+            Math.Max(MinimumRenderTargetDimension, (int)Math.Round(targetWidth)),
+            Math.Max(MinimumRenderTargetDimension, (int)Math.Round(targetHeight)));
+        var scale = new Vector2(
+            (float)effectiveSize.X / nativeSize.X,
+            (float)effectiveSize.Y / nativeSize.Y);
+        return new RenderTargetPlan(nativeSize, effectiveSize, scale, isCustom: true, wasClamped: wasClamped);
+    }
+
+    private static bool IsUsableRenderTargetSize(Vector2I size)
+    {
+        return size.X >= MinimumRenderTargetDimension && size.Y >= MinimumRenderTargetDimension;
+    }
+
+    private static void ScheduleResumeConsistencyValidation(long generation, long targetRevision, ContentScaleTarget target)
+    {
+        if (_resumeValidationScheduledGeneration == generation)
+            return;
+        _resumeValidationScheduledGeneration = generation;
+        try
+        {
+            Callable.From(() => ValidateResumeContentScale(generation, targetRevision, target, afterRepair: false)).CallDeferred();
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"[Display] Failed to queue resume consistency validation generation={generation}: {exception.Message}");
+        }
+    }
+
+    private static void ValidateResumeContentScale(long generation, long targetRevision, ContentScaleTarget target, bool afterRepair)
+    {
+        if (generation != _resumeGeneration)
+            return;
+        if (!_hasLatestContentScaleTarget
+            || targetRevision != _contentScaleTargetRevision
+            || !AreContentScaleTargetsEqual(_latestContentScaleTarget, target))
+        {
+            PatchHelper.Log($"[Display] Resume consistency validation skipped for stale target: generation={generation}, targetRevision={targetRevision}, currentRevision={_contentScaleTargetRevision}.");
+            return;
+        }
+
+        var window = GetRootWindow();
+        if (window == null)
+        {
+            PatchHelper.Log($"[Display] Resume consistency validation skipped: root Window missing, generation={generation}.");
+            return;
+        }
+        if (IsContentScaleTargetApplied(window, target))
+        {
+            // A late Android/Godot resize can restore only the renderer-side root
+            // viewport while leaving every scene Window property unchanged. Reassert
+            // the current render request during the bounded resume validation too.
+            ApplyDynamicRenderTarget(window, GetFullscreenRenderSize(), $"resume-validation#{generation}");
+            PatchHelper.Log($"[Display] Resume ContentScale consistent: generation={generation}, afterRepair={afterRepair}, owner={target.Owner}, mode={target.Mode}, aspect={target.Aspect}, size={target.Size}, factor={target.Factor:0.##}.");
+            return;
+        }
+
+        if (afterRepair || _resumeRepairAttemptedGeneration == generation)
+        {
+            PatchHelper.Log($"[Display] WARNING: Resume ContentScale remains inconsistent after one repair; generation={generation}, {DescribeContentScaleMismatch(window, target)}");
+            return;
+        }
+
+        _resumeRepairAttemptedGeneration = generation;
+        if (_isApplyingDisplaySettings)
+        {
+            PatchHelper.Log($"[Display] WARNING: Resume ContentScale repair skipped during active display apply; generation={generation}, {DescribeContentScaleMismatch(window, target)}");
+            return;
+        }
+
+        int changedProperties;
+        _isApplyingDisplaySettings = true;
+        try
+        {
+            changedProperties = ApplyContentScaleTarget(window, target);
+            ApplyDynamicRenderTarget(window, GetFullscreenRenderSize(), $"resume-repair#{generation}");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"[Display] WARNING: Resume ContentScale repair failed; generation={generation}: {exception}");
+            return;
+        }
+        finally
+        {
+            _isApplyingDisplaySettings = false;
+        }
+
+        PatchHelper.Log($"[Display] Resume ContentScale repair applied once: generation={generation}, changed={changedProperties}, owner={target.Owner}, mode={target.Mode}, aspect={target.Aspect}, size={target.Size}, factor={target.Factor:0.##}.");
+        try
+        {
+            Callable.From(() => ValidateResumeContentScale(generation, targetRevision, target, afterRepair: true)).CallDeferred();
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"[Display] WARNING: Failed to queue final resume consistency validation generation={generation}: {exception.Message}");
+        }
+    }
+
+    private static bool IsContentScaleTargetApplied(Window window, ContentScaleTarget target)
+    {
+        return window.ContentScaleMode == target.Mode
+            && window.ContentScaleAspect == target.Aspect
+            && window.ContentScaleSize == target.Size
+            && Mathf.IsEqualApprox(window.ContentScaleFactor, target.Factor);
+    }
+
+    private static bool AreContentScaleTargetsEqual(ContentScaleTarget left, ContentScaleTarget right)
+    {
+        return left.Owner == right.Owner
+            && left.Mode == right.Mode
+            && left.Aspect == right.Aspect
+            && left.Size == right.Size
+            && Mathf.IsEqualApprox(left.Factor, right.Factor);
+    }
+
+    private static string DescribeContentScaleMismatch(Window window, ContentScaleTarget target)
+    {
+        return $"actual(mode={window.ContentScaleMode}, aspect={window.ContentScaleAspect}, size={window.ContentScaleSize}, factor={window.ContentScaleFactor:0.##}), expected(mode={target.Mode}, aspect={target.Aspect}, size={target.Size}, factor={target.Factor:0.##})";
+    }
+
+    private static void RequestDeferredDisplayApply(DeferredDisplayApplyKind applyKind, string reason)
+    {
+        var previousApplyKind = _deferredDisplayApplyKind;
+        if ((int)applyKind >= (int)_deferredDisplayApplyKind)
+        {
+            _deferredDisplayApplyKind = applyKind;
+            _deferredDisplayApplyReason = reason;
+        }
+        if (_deferredDisplayApplyQueued)
+        {
+            if (applyKind == DeferredDisplayApplyKind.RuntimeSettings)
+                PatchHelper.Log($"[Display] Coalesced deferred resume apply: pending={previousApplyKind}, requested={applyKind}");
+            return;
+        }
+
+        _deferredDisplayApplyQueued = true;
+        try
+        {
+            Callable.From(RunDeferredDisplayApply).CallDeferred();
+            if (applyKind == DeferredDisplayApplyKind.RuntimeSettings)
+                PatchHelper.Log("[Display] Queued deferred resume apply.");
+        }
+        catch (Exception exception)
+        {
+            _deferredDisplayApplyQueued = false;
+            _deferredDisplayApplyKind = DeferredDisplayApplyKind.None;
+            PatchHelper.Log($"Failed to queue deferred display apply ({reason}): {exception.Message}");
+        }
+    }
+
+    private static void RunDeferredDisplayApply()
+    {
+        var applyKind = _deferredDisplayApplyKind;
+        var reason = _deferredDisplayApplyReason;
+        _deferredDisplayApplyQueued = false;
+        _deferredDisplayApplyKind = DeferredDisplayApplyKind.None;
+        if (applyKind != DeferredDisplayApplyKind.None)
+            ApplyDisplaySettings(applyKind, $"deferred-{reason}");
     }
 
     private static void ApplyAndroidScreenOrientationSetting()
@@ -241,69 +672,48 @@ public static class DisplaySettingsPatches
         }
     }
 
-    private static void ApplyAspectContentScaleSize(Window window, AspectRatioSetting aspect)
+    private static Vector2I GetAspectContentScaleSize(AspectRatioSetting aspect)
     {
-        switch (aspect)
+        return aspect switch
         {
-            case AspectRatioSetting.FourByThree:
-                SetContentScaleSizeIfChanged(window, new Vector2I(1680, 1260));
-                break;
-            case AspectRatioSetting.SixteenByTen:
-                SetContentScaleSizeIfChanged(window, new Vector2I(1920, 1200));
-                break;
-            case AspectRatioSetting.SixteenByNine:
-                SetContentScaleSizeIfChanged(window, new Vector2I(1920, 1080));
-                break;
-            case AspectRatioSetting.TwentyOneByNine:
-                SetContentScaleSizeIfChanged(window, new Vector2I(2580, 1080));
-                break;
-        }
+            AspectRatioSetting.FourByThree => new Vector2I(1680, 1260),
+            AspectRatioSetting.SixteenByTen => new Vector2I(1920, 1200),
+            AspectRatioSetting.SixteenByNine => new Vector2I(1920, 1080),
+            AspectRatioSetting.TwentyOneByNine => new Vector2I(2580, 1080),
+            _ => UiScalePatches.GetScaledContentSize(),
+        };
     }
 
-    private static void ApplyAutoAspectContentScaleSize(Window window)
+    private static bool SetContentScaleModeIfChanged(Window window, Window.ContentScaleModeEnum mode)
     {
-        if (window.Size.Y <= 0)
-            return;
-        float ratio = (float)window.Size.X / window.Size.Y;
-        if (ratio > 2.3888888f)
-        {
-            SetContentScaleAspectIfChanged(window, Window.ContentScaleAspectEnum.KeepWidth);
-            SetContentScaleSizeIfChanged(window, new Vector2I(2580, 1080));
-        }
-        else if (ratio < 1.3333334f)
-        {
-            SetContentScaleAspectIfChanged(window, Window.ContentScaleAspectEnum.KeepHeight);
-            SetContentScaleSizeIfChanged(window, new Vector2I(1680, 1260));
-        }
-        else
-        {
-            SetContentScaleAspectIfChanged(window, Window.ContentScaleAspectEnum.Expand);
-            SetContentScaleSizeIfChanged(window, new Vector2I(1680, 1080));
-        }
+        if (window.ContentScaleMode == mode)
+            return false;
+        window.ContentScaleMode = mode;
+        return true;
     }
 
-    private static void SetContentScaleModeIfChanged(Window window, Window.ContentScaleModeEnum mode)
+    private static bool SetContentScaleAspectIfChanged(Window window, Window.ContentScaleAspectEnum aspect)
     {
-        if (window.ContentScaleMode != mode)
-            window.ContentScaleMode = mode;
+        if (window.ContentScaleAspect == aspect)
+            return false;
+        window.ContentScaleAspect = aspect;
+        return true;
     }
 
-    private static void SetContentScaleAspectIfChanged(Window window, Window.ContentScaleAspectEnum aspect)
+    private static bool SetContentScaleSizeIfChanged(Window window, Vector2I size)
     {
-        if (window.ContentScaleAspect != aspect)
-            window.ContentScaleAspect = aspect;
+        if (window.ContentScaleSize == size)
+            return false;
+        window.ContentScaleSize = size;
+        return true;
     }
 
-    private static void SetContentScaleSizeIfChanged(Window window, Vector2I size)
+    private static bool SetContentScaleFactorIfChanged(Window window, float factor)
     {
-        if (window.ContentScaleSize != size)
-            window.ContentScaleSize = size;
-    }
-
-    private static void SetContentScaleFactorIfChanged(Window window, float factor)
-    {
-        if (!Mathf.IsEqualApprox(window.ContentScaleFactor, factor))
-            window.ContentScaleFactor = factor;
+        if (Mathf.IsEqualApprox(window.ContentScaleFactor, factor))
+            return false;
+        window.ContentScaleFactor = factor;
+        return true;
     }
 
     internal static int GetUiFontScalePercent() => Mathf.Clamp(AndroidSettingsBridge.GetInt("ui_font_scale_percent", 100), 50, 200);

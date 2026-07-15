@@ -244,7 +244,8 @@ public static class AndroidInGameSettingsPatches
             AndroidSettingsBridge.SetBool("android_flip_screen_180", value == DisplaySettingsPatches.ScreenRotationReverseLandscape);
             DisplaySettingsPatches.ApplyRuntimeDisplaySettings();
         }, readCurrent: DisplaySettingsPatches.GetAndroidScreenRotationMode);
-        AddSizePaginatorRow(content, "fullscreen_render_size", T("渲染分辨率", "Render resolution"), GetResolutionOptions(), (0, 0), _ => DisplaySettingsPatches.ApplyRuntimeDisplaySettings());
+        AddSizePaginatorRow(content, "fullscreen_render_size", T("渲染分辨率", "Render resolution"), GetResolutionOptions(), (0, 0), _ =>
+            DisplaySettingsPatches.ApplyRuntimeDisplaySettings());
         AddIntPaginatorRow(content, "ui_font_scale_percent", T("字体大小", "Font size"), Range(50, 200, 5), 100, v => $"{v}%", _ => DisplaySettingsPatches.ApplyRuntimeDisplaySettings());
         AddIntPaginatorRow(content, "global_scale", T("游戏缩放", "Game scale"), Range(50, 200, 5), 100, v => $"{v}%", v =>
         {

@@ -6,9 +6,9 @@ using HarmonyLib;
 namespace STS2Mobile.Patches;
 
 // Replaces the desktop resolution dropdown with a UI scale selector for mobile.
-// Persists the scale percentage to user://ui_scale.cfg and applies it by adjusting
-// the window's ContentScaleSize. Also intercepts window change handlers to maintain
-// the correct scale when the viewport resizes.
+// Persists the scale percentage to user://ui_scale.cfg. DisplaySettingsPatches is the
+// sole ContentScale coordinator; this patch only supplies the Auto-mode target and
+// requests a coalesced recalculation when the scale or window changes.
 public static class UiScalePatches
 {
     public static int UiScalePercent { get; private set; } = 100;
@@ -145,13 +145,11 @@ public static class UiScalePatches
         }
     }
 
-    public static void ApplyScaledContentSize(Window window)
+    internal static Vector2I GetScaledContentSize()
     {
+        EnsureUiScaleLoaded();
         float scale = UiScalePercent / 100f;
-
-        // Expand mode fills any screen ratio including near-square foldable displays.
-        window.ContentScaleAspect = Window.ContentScaleAspectEnum.Expand;
-        window.ContentScaleSize = new Vector2I(
+        return new Vector2I(
             (int)Math.Round(1680.0 / scale),
             (int)Math.Round(1080.0 / scale)
         );
@@ -163,9 +161,9 @@ public static class UiScalePatches
         try
         {
             var window = ((SceneTree)Engine.GetMainLoop()).Root;
-            ApplyScaledContentSize(window);
+            DisplaySettingsPatches.ApplyUiScaleContentScaleSettings();
             PatchHelper.Log(
-                $"UI Scale: {UiScalePercent}% -> ContentScaleSize {window.ContentScaleSize}"
+                $"UI Scale: {UiScalePercent}% -> owner={DisplaySettingsPatches.CurrentContentScaleOwner}, ContentScaleSize {window.ContentScaleSize}"
             );
             UiScaleChanged?.Invoke();
         }
@@ -312,45 +310,20 @@ public static class UiScalePatches
         }
     }
 
-    // Reapplies the scaled content size when the window changes (e.g. rotation).
+    // Suppresses the original window handler's ContentScale writes and lets the
+    // coordinator recalculate once after the current notification sequence.
     public static bool GlobalUiWindowChangePrefix(object __instance)
     {
-        if (
-            MegaCrit.Sts2.Core.Saves.SaveManager.Instance.SettingsSave.AspectRatioSetting
-            != MegaCrit.Sts2.Core.Settings.AspectRatioSetting.Auto
-        )
-            return true; // let the original handle non-Auto settings
-
         EnsureUiScaleLoaded();
-        try
-        {
-            var window = (Window)
-                AccessTools.Field(__instance.GetType(), "_window").GetValue(__instance);
-            ApplyScaledContentSize(window);
-        }
-        catch (Exception ex)
-        {
-            PatchHelper.Log($"{ex.GetType().Name}: {ex.Message}");
-        }
+        DisplaySettingsPatches.RequestDeferredContentScaleApply("NGlobalUi.OnWindowChange");
         return false;
     }
 
-    // Handles window change on the main menu screen specifically.
+    // Handles window changes on the main menu through the same single coordinator.
     public static bool MainMenuWindowChangePrefix(object __instance, bool isAspectRatioAuto)
     {
-        if (!isAspectRatioAuto)
-            return false;
         EnsureUiScaleLoaded();
-        try
-        {
-            var window = (Window)
-                AccessTools.Field(__instance.GetType(), "_window").GetValue(__instance);
-            ApplyScaledContentSize(window);
-        }
-        catch (Exception ex)
-        {
-            PatchHelper.Log($"{ex.GetType().Name}: {ex.Message}");
-        }
+        DisplaySettingsPatches.RequestDeferredContentScaleApply("NMainMenu.OnWindowChange");
         return false;
     }
 }

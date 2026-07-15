@@ -19,9 +19,35 @@ Current implementation (`STS2AndroidPortCompat`):
   maps companion `mod_settings.mods_enabled` / `mod_list` / legacy
   `disabled_mods` into the runtime `ModSettings`, and merges Android-only JSON
   keys back after PC `SettingsSave` serialization would drop them.
-- `DisplaySettingsPatches` applies Android-only companion fields for FPS, custom
-  fullscreen render size, global content scale, UI font scale, and 180° landscape
-  orientation.
+- `DisplaySettingsPatches` applies Android-only companion fields for FPS, global
+  content scale, UI font scale, and landscape orientation. It is the sole
+  coordinator for root-window `ContentScaleMode`, `ContentScaleAspect`, and
+  `ContentScaleSize`; logical layout always uses `CanvasItems`, with the ownership
+  order `FixedAspect > UiScaleAuto`. Auto uses the UI-scale target and fixed
+  aspect uses its corresponding fixed target. `fullscreen_render_size` never owns
+  or replaces that logical target and Java no longer forwards it as Godot
+  `--resolution`; changing it in the in-game settings immediately resizes only the
+  root renderer render target. After all high-level `ContentScale*` setters finish,
+  the coordinator applies `RenderingServer.ViewportSetRenderDirectToScreen(false)`,
+  `ViewportSetSize()`, and `ViewportSetGlobalCanvasTransform()`. The scene `Window`,
+  its input transform, and the Android `Surface` stay unchanged. Do not use
+  `SurfaceHolder.setFixedSize()` or `ViewportAttachToScreen()` for this path.
+  `0x0` restores both the native attachment-sized render target and the base canvas
+  transform. A non-zero preset is a minimum reference rectangle: the effective
+  target keeps the current native attachment aspect and uses Expand-style coverage
+  (for example, native `2400x1080` plus `1280x720` becomes `1600x720`). The custom
+  longest-dimension cap is `max(4096, native longest dimension)`. Root-window
+  `SizeChanged`, application resume, and consistency repair reapply the renderer
+  state after logical setters. Ownership is published before
+  any compare-before-set Window mutation, reentrant requests are coalesced, and
+  application resume schedules one deferred runtime apply instead of rebuilding the
+  viewport from focus notifications. `UiScalePatches` only supplies the Auto target
+  and requests a single-flight recalculation; it never writes `ContentScale*` directly.
+  `global_scale` remains an independent `ContentScaleFactor` under every owner,
+  and UI font scale remains independent.
+  Each resume generation performs one deferred consistency check and at most one
+  compare-before-set repair; stale targets are rejected by revision and a failed
+  final check only logs a warning instead of entering a viewport rebuild loop.
 - `MobileHandLayoutPatches` applies the companion `show_more_hand_card_text` /
   `show_more_hand_card_text_lift_height_percent` hand lift as a Harmony
   post-layout offset without rebuilding the game body.

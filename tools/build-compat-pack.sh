@@ -58,11 +58,16 @@ PY
     STS2_ORIGINAL_V1080_ROOT="$(_sts2_abs "$STS2_ORIGINAL_V1080_ROOT")"
     STS2_ORIGINAL_V1080_REFERENCE_DIR="${STS2_ORIGINAL_V1080_REFERENCE_DIR:-$STS2_ORIGINAL_V1080_ROOT/.godot/mono/temp/bin/Debug}"
   fi
+  if [[ -n "${STS2_ORIGINAL_V1090_ROOT:-}" ]]; then
+    STS2_ORIGINAL_V1090_ROOT="$(_sts2_abs "$STS2_ORIGINAL_V1090_ROOT")"
+    STS2_ORIGINAL_V1090_REFERENCE_DIR="${STS2_ORIGINAL_V1090_REFERENCE_DIR:-$STS2_ORIGINAL_V1090_ROOT/.godot/mono/temp/bin/Debug}"
+  fi
   if [[ -n "${STS2_ORIGINAL_V103_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V103_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V103_REFERENCE_DIR")"; fi
   if [[ -n "${STS2_ORIGINAL_V1061_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1061_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1061_REFERENCE_DIR")"; fi
   if [[ -n "${STS2_ORIGINAL_V1070_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1070_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1070_REFERENCE_DIR")"; fi
   if [[ -n "${STS2_ORIGINAL_V1071_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1071_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1071_REFERENCE_DIR")"; fi
   if [[ -n "${STS2_ORIGINAL_V1080_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1080_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1080_REFERENCE_DIR")"; fi
+  if [[ -n "${STS2_ORIGINAL_V1090_REFERENCE_DIR:-}" ]]; then STS2_ORIGINAL_V1090_REFERENCE_DIR="$(_sts2_abs "$STS2_ORIGINAL_V1090_REFERENCE_DIR")"; fi
 fi
 
 DOTNET_BIN="${DOTNET_BIN:-dotnet}"
@@ -83,6 +88,9 @@ compile_constants_for_flavor() {
       ;;
     original-v0.108.0)
       printf '%s\n' "STS2_TARGET_1080"
+      ;;
+    original-v0.109.0)
+      printf '%s\n' "STS2_TARGET_1090"
       ;;
     *)
       printf '%s\n' ""
@@ -106,6 +114,9 @@ if [[ -z "${COMPAT_REFERENCE_DIR:-}" ]]; then
       ;;
     original-v0.108.0)
       COMPAT_REFERENCE_DIR="${STS2_ORIGINAL_V1080_REFERENCE_DIR:-$ROOT/refs/original-v0.108.0}"
+      ;;
+    original-v0.109.0)
+      COMPAT_REFERENCE_DIR="${STS2_ORIGINAL_V1090_REFERENCE_DIR:-$ROOT/refs/original-v0.109.0}"
       ;;
     runtime|*)
       COMPAT_REFERENCE_DIR="${STS2_RUNTIME_REFERENCE_DIR:-}"

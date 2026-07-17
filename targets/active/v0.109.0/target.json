@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "target_id": "v0.109.0",
+  "status": "active",
+  "display_name": "STS2 v0.109.0",
+  "versions": [
+    "v0.109.0"
+  ],
+  "reference_flavor": "original-v0.109.0",
+  "channel": "beta",
+  "source": "original_pc_reference_v0.109.0",
+  "steam_branch": "public-beta",
+  "sts2_dll_sha256": "ee45848ff6319dfc7af2538d3a52d05d82bef35ee4c5fd0400dc9efe8f9054aa",
+  "compile_constants": [
+    "STS2_TARGET_1090"
+  ],
+  "notes": [
+    "Flattened target descriptor for the v0.109.0 public beta line.",
+    "v0.109.0 keeps the v0.108.0 Spine and JoinFlow API shapes and adds an optional injected model type parameter to ModelDb.Init."
+  ]
+}

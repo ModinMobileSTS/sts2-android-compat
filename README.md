@@ -100,6 +100,9 @@ Or build the schema-2 family compatibility pack from this submodule with local e
 export DOTNET_BIN=/path/to/dotnet
 export STS2_ORIGINAL_V1080_REFERENCE_DIR=/path/to/original-v0.108.0/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.108.0
+
+export STS2_ORIGINAL_V1090_REFERENCE_DIR=/path/to/original-v0.109.0/bin/Debug
+./tools/build-compat-matrix.sh --target v0.109.0
 ```
 
 `tools/build-compat-pack.sh` is the legacy schema-1 path; use it only when also providing a matching `COMPAT_MANIFEST`.

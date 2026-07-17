@@ -764,7 +764,7 @@ public static class LanMultiplayerPatches
         hostInput.Text = host;
         portInput.Text = port.ToString();
         SaveJoinEndpoint(host, port);
-#if STS2_TARGET_1080
+#if STS2_TARGET_1080 || STS2_TARGET_1090
         var joinFlow = new JoinFlow(new NetClientGameService());
 #else
         var joinFlow = new JoinFlow();

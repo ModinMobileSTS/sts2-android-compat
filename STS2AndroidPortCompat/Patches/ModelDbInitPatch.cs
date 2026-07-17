@@ -469,15 +469,28 @@ public static class ModelDbInitPatch
         }
     }
 
-    public static bool InitPrefix()
+    public static bool InitPrefix(object[] __args)
     {
+        if (HasExplicitInjectedModelTypes(__args))
+            return true;
         RunTwoPhaseModelDbInit();
         return false;
     }
 
-    public static void InitPostfix()
+    public static void InitPostfix(object[] __args)
     {
+        if (HasExplicitInjectedModelTypes(__args))
+            return;
         RunTwoPhaseModelDbInit();
+    }
+
+    private static bool HasExplicitInjectedModelTypes(object[] args)
+    {
+        if (args == null || args.Length == 0 || args[0] is not Type[] injectedModelTypes)
+            return false;
+
+        PatchHelper.Log($"ModelDbInitPatch: preserving original ModelDb.Init for an explicit injected model set ({injectedModelTypes.Length} type(s)).");
+        return true;
     }
 
     public static void RunTwoPhaseModelDbInit()

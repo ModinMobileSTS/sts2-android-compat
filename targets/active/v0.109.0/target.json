@@ -2,20 +2,24 @@
   "schema": 1,
   "target_id": "v0.109.0",
   "status": "active",
-  "display_name": "STS2 v0.109.0",
+  "display_name": "STS2 v0.109.x",
   "versions": [
-    "v0.109.0"
+    "v0.109.0",
+    "v0.109.1"
   ],
   "reference_flavor": "original-v0.109.0",
   "channel": "beta",
-  "source": "original_pc_reference_v0.109.0",
+  "source": "original_pc_reference_v0.109.1",
   "steam_branch": "public-beta",
-  "sts2_dll_sha256": "ee45848ff6319dfc7af2538d3a52d05d82bef35ee4c5fd0400dc9efe8f9054aa",
+  "sts2_dll_sha256": [
+    "ee45848ff6319dfc7af2538d3a52d05d82bef35ee4c5fd0400dc9efe8f9054aa",
+    "016c6df717d997fcbd8f2a55102ca63cb4a89c1fa8e4db8dacfddf803b6b70e1"
+  ],
   "compile_constants": [
     "STS2_TARGET_1090"
   ],
   "notes": [
-    "Flattened target descriptor for the v0.109.0 public beta line.",
-    "v0.109.0 keeps the v0.108.0 Spine and JoinFlow API shapes and adds an optional injected model type parameter to ModelDb.Init."
+    "Shared flattened target for the v0.109.0 and v0.109.1 public beta line; the stable target_id and ReferenceFlavor names are retained for existing launch profiles and build tooling.",
+    "v0.109.0 adds the optional ModelDb.Init injected-model parameter and keeps the v0.108.0 Spine and JoinFlow API shapes; v0.109.1 changes only build identity metadata and Traditional Chinese localization, with identical managed API and method IL."
   ]
 }

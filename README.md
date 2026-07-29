@@ -101,7 +101,8 @@ export DOTNET_BIN=/path/to/dotnet
 export STS2_ORIGINAL_V1080_REFERENCE_DIR=/path/to/original-v0.108.0/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.108.0
 
-export STS2_ORIGINAL_V1090_REFERENCE_DIR=/path/to/original-v0.109.0/bin/Debug
+# Historical V1090 names identify the shared v0.109.x target; use the latest v0.109.1 gate.
+export STS2_ORIGINAL_V1090_REFERENCE_DIR=/path/to/original-v0.109.1/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.109.0
 ```
 

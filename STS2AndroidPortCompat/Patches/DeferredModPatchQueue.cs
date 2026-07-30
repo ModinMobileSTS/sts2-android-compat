@@ -25,6 +25,10 @@ public static class DeferredModPatchQueue
     private static FieldInfo _processorInnerPrefixField;
     private static FieldInfo _processorInnerPostfixField;
 
+    private static MethodInfo _patchClassProcessPatchJobMethod;
+    private static FieldInfo _patchClassHarmonyField;
+    private static FieldInfo _patchClassContainerTypeField;
+
     private static bool _applied;
     private static int _modInitializationDepth;
     private static string _currentModId;
@@ -37,24 +41,52 @@ public static class DeferredModPatchQueue
         if (_applied)
             return;
 
+        var directProcessorInstalled = false;
+        var patchClassProcessorInstalled = false;
+
         try
         {
             CachePatchProcessorFields();
             var target = AccessTools.Method(typeof(PatchProcessor), nameof(PatchProcessor.Patch), Type.EmptyTypes);
             var prefix = AccessTools.Method(typeof(DeferredModPatchQueue), nameof(PatchProcessorPatchPrefix));
             if (target == null || prefix == null)
-            {
-                PatchHelper.Log($"{PatchLabel}: PatchProcessor.Patch or prefix not found; deferred user-MOD patch queue disabled.");
-                return;
-            }
+                throw new MissingMethodException("PatchProcessor.Patch deferral hook not found.");
 
             harmony.Patch(target, prefix: new HarmonyMethod(prefix) { priority = Priority.First });
-            _applied = true;
-            PatchHelper.Log($"{PatchLabel}: installed user-MOD Harmony patch deferral guard for early Android/Mono cctor safety.");
+            directProcessorInstalled = true;
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"{PatchLabel}: failed to install guard: {exception}");
+            PatchHelper.Log($"{PatchLabel}: failed to install direct PatchProcessor.Patch guard: {exception}");
+        }
+
+        try
+        {
+            CachePatchClassProcessorMembers();
+            var prefix = AccessTools.Method(typeof(DeferredModPatchQueue), nameof(PatchClassProcessorProcessPatchJobPrefix));
+            if (_patchClassProcessPatchJobMethod == null || prefix == null)
+                throw new MissingMethodException("PatchClassProcessor.ProcessPatchJob deferral hook not found.");
+
+            harmony.Patch(
+                _patchClassProcessPatchJobMethod,
+                prefix: new HarmonyMethod(prefix) { priority = Priority.First });
+            patchClassProcessorInstalled = true;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"{PatchLabel}: failed to install PatchAll/PatchClassProcessor job guard: {exception}");
+        }
+
+        _applied = directProcessorInstalled || patchClassProcessorInstalled;
+        if (_applied)
+        {
+            PatchHelper.Log(
+                $"{PatchLabel}: installed user-MOD Harmony patch deferral guards for early Android/Mono cctor safety "
+                + $"(direct_processor={directProcessorInstalled}, patch_all_jobs={patchClassProcessorInstalled}).");
+        }
+        else
+        {
+            PatchHelper.Log($"{PatchLabel}: no Harmony patch entrypoint guard could be installed; deferred user-MOD patch queue disabled.");
         }
     }
 
@@ -70,7 +102,7 @@ public static class DeferredModPatchQueue
 
     public static bool PatchProcessorPatchPrefix(PatchProcessor __instance, ref MethodInfo __result)
     {
-        if (!ShouldInspectPatchProcessor())
+        if (!ShouldInspectPatch())
             return true;
 
         try
@@ -78,21 +110,54 @@ public static class DeferredModPatchQueue
             if (!TryCreateDeferredPatch(__instance, out var deferredPatch))
                 return true;
 
-            lock (LockObject)
-            {
-                deferredPatch.Order = _nextOrder++;
-                Queue.Add(deferredPatch);
-            }
-
+            Enqueue(ref deferredPatch);
             __result = null;
             PatchHelper.Log(
-                $"{PatchLabel}: deferred user-MOD patch #{deferredPatch.Order} for {DescribeMethod(deferredPatch.Original)} from {deferredPatch.HarmonyId} during {deferredPatch.ModId}; reason={deferredPatch.Reason}");
+                $"{PatchLabel}: deferred direct user-MOD patch #{deferredPatch.Order} for {DescribeMethod(deferredPatch.Original)} from {deferredPatch.HarmonyId} during {deferredPatch.ModId}; reason={deferredPatch.Reason}");
             return false;
         }
         catch (Exception exception)
         {
             PatchHelper.Log($"{PatchLabel}: failed while inspecting PatchProcessor.Patch; falling back to immediate patch: {exception}");
             return true;
+        }
+    }
+
+    /// <summary>
+    /// PatchAll does not call PatchProcessor.Patch. Ekyso Harmony builds one
+    /// private PatchClassProcessor job per original and sends it directly to
+    /// PatchFunctions.UpdateWrapper. Intercept the job before its per-target
+    /// prepare/apply/cleanup sequence and retain the exact processor + job so
+    /// Harmony can execute that sequence unchanged when the queue is flushed.
+    /// </summary>
+    public static bool PatchClassProcessorProcessPatchJobPrefix(PatchClassProcessor __instance, object __0)
+    {
+        if (!ShouldInspectPatch())
+            return true;
+
+        try
+        {
+            if (!TryCreateDeferredPatchClassJob(__instance, __0, out var deferredPatch))
+                return true;
+
+            Enqueue(ref deferredPatch);
+            PatchHelper.Log(
+                $"{PatchLabel}: deferred PatchAll job #{deferredPatch.Order} for {DescribeMethod(deferredPatch.Original)} from {deferredPatch.HarmonyId} during {deferredPatch.ModId}; patch_class={deferredPatch.PatchClassName}; reason={deferredPatch.Reason}");
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"{PatchLabel}: failed while inspecting PatchClassProcessor job; falling back to immediate patch: {exception}");
+            return true;
+        }
+    }
+
+    private static void Enqueue(ref DeferredPatch deferredPatch)
+    {
+        lock (LockObject)
+        {
+            deferredPatch.Order = _nextOrder++;
+            Queue.Add(deferredPatch);
         }
     }
 
@@ -145,6 +210,17 @@ public static class DeferredModPatchQueue
     {
         try
         {
+            if (patch.Kind == DeferredPatchKind.PatchClassProcessorJob)
+            {
+                // Invoke the original Harmony job object instead of reconstructing
+                // it. This preserves all patch methods in a multi-method class,
+                // owner/order metadata, inner patches, and the per-target
+                // HarmonyPrepare/HarmonyCleanup flow. _flushing prevents our own
+                // ProcessPatchJob prefix from queueing it a second time.
+                _patchClassProcessPatchJobMethod.Invoke(patch.PatchClassProcessor, new[] { patch.PatchClassJob });
+                return true;
+            }
+
             var processor = patch.Harmony.CreateProcessor(patch.Original);
             processor.AddPrefix(patch.Prefix);
             processor.AddPostfix(patch.Postfix);
@@ -154,6 +230,11 @@ public static class DeferredModPatchQueue
             AddOptionalPatch(processor, "AddInnerPostfix", patch.InnerPostfix);
             processor.Patch();
             return true;
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException != null)
+        {
+            PatchHelper.Log($"{PatchLabel}: failed to replay deferred patch #{patch.Order} for {DescribeMethod(patch.Original)} from {patch.HarmonyId}: {exception.InnerException}");
+            return false;
         }
         catch (Exception exception)
         {
@@ -171,7 +252,7 @@ public static class DeferredModPatchQueue
         method?.Invoke(processor, new object[] { patch });
     }
 
-    private static bool ShouldInspectPatchProcessor()
+    private static bool ShouldInspectPatch()
     {
         lock (LockObject)
         {
@@ -212,6 +293,7 @@ public static class DeferredModPatchQueue
 
         deferredPatch = new DeferredPatch
         {
+            Kind = DeferredPatchKind.PatchProcessor,
             Harmony = harmony,
             HarmonyId = harmony.Id ?? "<unknown>",
             Original = original,
@@ -221,6 +303,44 @@ public static class DeferredModPatchQueue
             Finalizer = finalizer,
             InnerPrefix = innerPrefix,
             InnerPostfix = innerPostfix,
+            ModId = CurrentModId(),
+            Reason = reason
+        };
+        return true;
+    }
+
+    private static bool TryCreateDeferredPatchClassJob(
+        PatchClassProcessor processor,
+        object job,
+        out DeferredPatch deferredPatch)
+    {
+        deferredPatch = default;
+        if (processor == null || job == null)
+            return false;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        var originalField = job.GetType().GetField("original", flags);
+        var original = originalField?.GetValue(job) as MethodBase;
+        if (original == null)
+            return false;
+
+        if (!ShouldDeferTarget(original.DeclaringType, out var reason))
+            return false;
+
+        var harmony = _patchClassHarmonyField.GetValue(processor) as Harmony;
+        if (harmony == null)
+            return false;
+
+        var patchClass = _patchClassContainerTypeField?.GetValue(processor) as Type;
+        deferredPatch = new DeferredPatch
+        {
+            Kind = DeferredPatchKind.PatchClassProcessorJob,
+            Harmony = harmony,
+            HarmonyId = harmony.Id ?? "<unknown>",
+            Original = original,
+            PatchClassProcessor = processor,
+            PatchClassJob = job,
+            PatchClassName = patchClass?.FullName ?? "<unknown>",
             ModId = CurrentModId(),
             Reason = reason
         };
@@ -346,6 +466,16 @@ public static class DeferredModPatchQueue
         }
     }
 
+    private static void CachePatchClassProcessorMembers()
+    {
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        _patchClassProcessPatchJobMethod = typeof(PatchClassProcessor).GetMethod("ProcessPatchJob", flags)
+            ?? throw new MissingMethodException(typeof(PatchClassProcessor).FullName, "ProcessPatchJob");
+        _patchClassHarmonyField = typeof(PatchClassProcessor).GetField("instance", flags)
+            ?? throw new MissingFieldException(typeof(PatchClassProcessor).FullName, "instance");
+        _patchClassContainerTypeField = typeof(PatchClassProcessor).GetField("containerType", flags);
+    }
+
     private static string DescribeMethod(MethodBase method)
     {
         if (method == null)
@@ -372,8 +502,15 @@ public static class DeferredModPatchQueue
         }
     }
 
+    private enum DeferredPatchKind
+    {
+        PatchProcessor,
+        PatchClassProcessorJob
+    }
+
     private struct DeferredPatch
     {
+        public DeferredPatchKind Kind;
         public int Order;
         public Harmony Harmony;
         public string HarmonyId;
@@ -384,6 +521,9 @@ public static class DeferredModPatchQueue
         public HarmonyMethod Finalizer;
         public HarmonyMethod InnerPrefix;
         public HarmonyMethod InnerPostfix;
+        public PatchClassProcessor PatchClassProcessor;
+        public object PatchClassJob;
+        public string PatchClassName;
         public string ModId;
         public string Reason;
     }

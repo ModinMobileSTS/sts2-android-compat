@@ -28,6 +28,12 @@ reference directory explicitly:
   -p:CompatReferenceDir="$STS2_ORIGINAL_V103_REFERENCE_DIR" -v:q
 ```
 
+Run the synthetic `Harmony.PatchAll()` early-UI-initialization regression without
+commercial game code:
+
+```bash
+port-mod/tools/test-deferred-mod-patch-queue.sh
+```
 
 Startup/mod compatibility notes:
 
@@ -42,11 +48,15 @@ Startup/mod compatibility notes:
   hooks depend on the original PC ordering.
 - `DeferredModPatchQueue` covers the adjacent case where a user mod patches an
   STS2 Godot/UI type whose static fields directly read `LocManager.Instance` or
-  other not-yet-essential state. During each user-mod initializer/PatchAll it
-  queues patches for `sts2` UI/Godot targets with type initializers, then replays
-  them after `LocManager`, `ModelDb`, and model-id initialization finish.
-  Model-type patches are intentionally not deferred, because many mods need
-  their `ModelDb.Init` prefixes installed before the model construction phase.
+  other not-yet-essential state. During each user-mod initializer it guards both
+  direct `PatchProcessor.Patch()` and the private per-target
+  `PatchClassProcessor.ProcessPatchJob()` path used by `Harmony.PatchAll()`.
+  Unsafe jobs retain the original Harmony processor/job and replay once after
+  `LocManager`, `ModelDb`, model-id, and network-type initialization finish, so
+  owner/order metadata, all patch kinds, and per-target prepare/cleanup behavior
+  are not reconstructed or dropped. Safe targets in the same PatchAll class stay
+  immediate. Model-type patches are intentionally not deferred, because many
+  mods need their `ModelDb.Init` prefixes installed before model construction.
 - `BaseLibCompatPatches` is intentionally the same degraded-mode workaround as
   the reference launcher: `BaseLib.Utils.Patching.AsyncMethodCall.Create` is
   prefix-disabled when BaseLib loads, so BaseLib's async hook state-machine

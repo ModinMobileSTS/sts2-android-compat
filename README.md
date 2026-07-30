@@ -73,6 +73,15 @@ Current implementation (`STS2AndroidPortCompat`):
   and applies the companion `pending_unlock_all.flag` command.
 - `ModLoaderPatches` redirects local mods to `OS.GetDataDir()/mods` and skips
   Steam mod enumeration.
+- `DeferredModPatchQueue` protects Android/Mono from user-MOD patches that
+  eagerly initialize STS2 UI/Godot types before essential startup. It covers
+  both direct `PatchProcessor.Patch()` calls and the per-target private
+  `PatchClassProcessor.ProcessPatchJob()` path used by `Harmony.PatchAll()`.
+  Safe/model targets remain immediate; unsafe jobs retain their original
+  Harmony owner, patch lists, ordering, and per-target prepare/cleanup flow and
+  replay once after model/network type initialization. A synthetic `sts2`
+  fixture regression is available through
+  `tools/test-deferred-mod-patch-queue.sh`.
 - `ShaderCompatibilityPatches` loads `port_compat.pck` and applies the mobile
   shader replacements copied from the old port when
   `shader_compatibility_mode` is enabled; it intentionally keeps the original

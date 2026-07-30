@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../GameFixture/GameFixture.csproj" />
+    <Compile Include="../../../STS2AndroidPortCompat/Patches/DeferredModPatchQueue.cs" Link="DeferredModPatchQueue.cs" />
+    <Reference Include="0Harmony"><HintPath>$(HarmonyReferenceDir)/0Harmony.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Mono.Cecil" Condition="Exists('$(HarmonyReferenceDir)/Mono.Cecil.dll')"><HintPath>$(HarmonyReferenceDir)/Mono.Cecil.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Mono.Cecil.Mdb" Condition="Exists('$(HarmonyReferenceDir)/Mono.Cecil.Mdb.dll')"><HintPath>$(HarmonyReferenceDir)/Mono.Cecil.Mdb.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Mono.Cecil.Pdb" Condition="Exists('$(HarmonyReferenceDir)/Mono.Cecil.Pdb.dll')"><HintPath>$(HarmonyReferenceDir)/Mono.Cecil.Pdb.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Mono.Cecil.Rocks" Condition="Exists('$(HarmonyReferenceDir)/Mono.Cecil.Rocks.dll')"><HintPath>$(HarmonyReferenceDir)/Mono.Cecil.Rocks.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="MonoMod.Backports" Condition="Exists('$(HarmonyReferenceDir)/MonoMod.Backports.dll')"><HintPath>$(HarmonyReferenceDir)/MonoMod.Backports.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="MonoMod.Core" Condition="Exists('$(HarmonyReferenceDir)/MonoMod.Core.dll')"><HintPath>$(HarmonyReferenceDir)/MonoMod.Core.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="MonoMod.Iced" Condition="Exists('$(HarmonyReferenceDir)/MonoMod.Iced.dll')"><HintPath>$(HarmonyReferenceDir)/MonoMod.Iced.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="MonoMod.ILHelpers" Condition="Exists('$(HarmonyReferenceDir)/MonoMod.ILHelpers.dll')"><HintPath>$(HarmonyReferenceDir)/MonoMod.ILHelpers.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="MonoMod.Utils" Condition="Exists('$(HarmonyReferenceDir)/MonoMod.Utils.dll')"><HintPath>$(HarmonyReferenceDir)/MonoMod.Utils.dll</HintPath><Private>true</Private></Reference>
+  </ItemGroup>
+</Project>

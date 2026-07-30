@@ -9,6 +9,10 @@ Current implementation (`STS2AndroidPortCompat`):
 - `ModEntry` exposes the same unmanaged entrypoints used by the reference
   launcher (`InitializeGodotSharp`, `Apply`).
 - `PlatformPatches` disables desktop Steam/Sentry/platform paths.
+- `RunHistoryPatches` keeps persisted `PlatformType.Steam` run histories readable
+  without loading desktop `steam_api64`: only history-screen identity lookups use
+  the Android/null-platform ID and cached-name fallback, while Steam transport,
+  lobby, and invite behavior remains untouched.
 - `ReleaseInfoPatches` reads `release_info.json` from the imported private
   payload at `OS.GetDataDir()/game/release_info.json`.
 - `AndroidSettingsBridge` reads extra-settings JSON from

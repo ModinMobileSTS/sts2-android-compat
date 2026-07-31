@@ -117,6 +117,10 @@ export STS2_ORIGINAL_V1080_REFERENCE_DIR=/path/to/original-v0.108.0/bin/Debug
 # Historical V1090 names identify the shared v0.109.x target; use the latest v0.109.1 gate.
 export STS2_ORIGINAL_V1090_REFERENCE_DIR=/path/to/original-v0.109.1/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.109.0
+
+# Current v0.110.0 public-beta API/protocol target.
+export STS2_ORIGINAL_V1100_REFERENCE_DIR=/path/to/original-v0.110.0/bin/Debug
+./tools/build-compat-matrix.sh --target v0.110.0
 ```
 
 `tools/build-compat-pack.sh` is the legacy schema-1 path; use it only when also providing a matching `COMPAT_MANIFEST`.

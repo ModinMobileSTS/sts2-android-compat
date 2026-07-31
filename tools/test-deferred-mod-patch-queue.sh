@@ -43,6 +43,7 @@ if [[ -z "$REFERENCE_DIR" ]]; then
   for candidate in \
     "$PARENT_ROOT/android/assets/dotnet_bcl" \
     "${STS2_RUNTIME_REFERENCE_DIR:-}" \
+    "${STS2_ORIGINAL_V1100_REFERENCE_DIR:-}" \
     "${STS2_ORIGINAL_V1090_REFERENCE_DIR:-}"; do
     if [[ -n "$candidate" && -f "$candidate/0Harmony.dll" ]]; then
       REFERENCE_DIR="$candidate"

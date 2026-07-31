@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "target_id": "v0.110.0",
+  "status": "active",
+  "display_name": "STS2 v0.110.0",
+  "versions": [
+    "v0.110.0"
+  ],
+  "reference_flavor": "original-v0.110.0",
+  "channel": "beta",
+  "source": "original_pc_reference_v0.110.0",
+  "steam_branch": "public-beta",
+  "sts2_dll_sha256": "7a2592364fdc6ff4c42bb5f1ff41f9fa12155f84de772e203ace1b088ebb607d",
+  "compile_constants": [
+    "STS2_TARGET_1100"
+  ],
+  "notes": [
+    "Independent flattened target for the v0.110.0 public beta API and protocol update; it must not be merged into the API-identical v0.109.x variant.",
+    "v0.110.0 keeps the optional ModelDb.Init injected-model contract and the v0.108+ Spine and JoinFlow API shapes, while moving multiplayer version data to PeerVersionInfo and making ProgressState.TotalUnlocks derived from epoch state."
+  ]
+}

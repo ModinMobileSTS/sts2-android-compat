@@ -183,7 +183,7 @@ public static class ExternalSettingsPatches
     {
         var progress = SaveManager.Instance.Progress;
         progress.EnableFtues = false;
-        progress.TotalUnlocks = 18;
+        TrySetLegacyTotalUnlocks(progress);
         progress.CurrentScore = 0;
         progress.PendingCharacterUnlock = ModelId.none;
         progress.MaxMultiplayerAscension = 10;
@@ -223,5 +223,20 @@ public static class ExternalSettingsPatches
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         foreach (Achievement achievement in Enum.GetValues<Achievement>())
             progress.AddUnlockedAchievement(achievement, timestamp);
+    }
+
+    private static void TrySetLegacyTotalUnlocks(ProgressState progress)
+    {
+        try
+        {
+            var property = typeof(ProgressState).GetProperty("TotalUnlocks", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            var setter = property?.GetSetMethod(nonPublic: true);
+            if (setter != null)
+                setter.Invoke(progress, new object[] { 18 });
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Unable to set the legacy TotalUnlocks counter; epoch reveal state remains authoritative: {exception.Message}");
+        }
     }
 }

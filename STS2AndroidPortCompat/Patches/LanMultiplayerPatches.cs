@@ -54,7 +54,9 @@ public static class LanMultiplayerPatches
         if (!ShouldApplyLocalLanPatches())
             return;
 
+#if !STS2_TARGET_1100
         PatchHelper.Patch(harmony, typeof(InitialGameInfoMessage), "Basic", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(InitialGameInfoBasicPostfix)));
+#endif
         PatchHelper.Patch(harmony, typeof(ModManager), "GetGameplayRelevantModNameList", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(ModNameListPostfix)));
         PatchHelper.Patch(harmony, typeof(ModManager), "GetModNameList", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(ModNameListPostfix)));
         PatchHelper.Patch(harmony, typeof(JoinFlow), "Begin", prefix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(JoinFlowBeginPrefix)));
@@ -764,7 +766,7 @@ public static class LanMultiplayerPatches
         hostInput.Text = host;
         portInput.Text = port.ToString();
         SaveJoinEndpoint(host, port);
-#if STS2_TARGET_1080 || STS2_TARGET_1090
+#if STS2_TARGET_1080 || STS2_TARGET_1090 || STS2_TARGET_1100
         var joinFlow = new JoinFlow(new NetClientGameService());
 #else
         var joinFlow = new JoinFlow();

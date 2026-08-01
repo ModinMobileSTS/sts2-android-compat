@@ -118,8 +118,9 @@ export STS2_ORIGINAL_V1080_REFERENCE_DIR=/path/to/original-v0.108.0/bin/Debug
 export STS2_ORIGINAL_V1090_REFERENCE_DIR=/path/to/original-v0.109.1/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.109.0
 
-# Current v0.110.0 public-beta API/protocol target.
-export STS2_ORIGINAL_V1100_REFERENCE_DIR=/path/to/original-v0.110.0/bin/Debug
+# Shared current v0.110.x public-beta API/protocol target.
+# Keep the historical V1100 variable/flavor name; point it at the latest v0.110.1 gate.
+export STS2_ORIGINAL_V1100_REFERENCE_DIR=/path/to/original-v0.110.1/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.110.0
 ```
 

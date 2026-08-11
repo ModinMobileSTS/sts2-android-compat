@@ -409,6 +409,10 @@ public static class AndroidInGameSettingsPatches
             HorizontalAlignment = HorizontalAlignment.Left,
             Modulate = new Color(1f, 0.965f, 0.886f),
         };
+        if (_boldFont != null)
+            label.AddThemeFontOverride("font", _boldFont);
+        else if (_regularFont != null)
+            label.AddThemeFontOverride("font", _regularFont);
         label.AddThemeFontSizeOverride("font_size", 30);
         content.AddChild(label);
     }

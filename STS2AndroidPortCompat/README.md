@@ -46,6 +46,15 @@ Startup/mod compatibility notes:
   returns a stable key fallback until normal localization initialization has
   completed. Do not move full `LocManager.Initialize` earlier; mod localization
   hooks depend on the original PC ordering.
+- `AndroidFontCoveragePatches` installs locale glyph coverage after normal
+  localization initialization without depending on Android OEM system-font
+  discovery. It preserves each control's base font and existing explicit
+  fallbacks, then appends the matching STS2 `FontManager` Regular/Bold/Italic
+  resource for the current locale. Existing controls receive one startup scan;
+  later `Label`, `RichTextLabel`, common text/list controls, and `Label3D` nodes
+  stay on the single-node `SceneTree.NodeAdded` path. Do not replace this with a
+  hot `Node.AddChild` recursive scan or package duplicate CJK fonts in the
+  compatibility overlay.
 - `DeferredModPatchQueue` covers the adjacent case where a user mod patches an
   STS2 Godot/UI type whose static fields directly read `LocManager.Instance` or
   other not-yet-essential state. During each user-mod initializer it guards both

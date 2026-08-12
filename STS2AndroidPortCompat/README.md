@@ -35,6 +35,13 @@ commercial game code:
 port-mod/tools/test-deferred-mod-patch-queue.sh
 ```
 
+Run the synthetic extended-player treasure/rest-site regression, also without
+commercial game code:
+
+```bash
+port-mod/tools/test-extended-multiplayer-rooms.sh
+```
+
 Startup/mod compatibility notes:
 
 - `ModEntry` now keeps the working `StS2-Launcher_Mod_Manager` patch order as
@@ -109,6 +116,14 @@ The matching original game assembly remains the sole wire-protocol
 implementation, including its per-version and MOD-aware message ordering, so an
 Android peer uses the same codec as an unmodified PC peer. Protocol-affecting
 MODs must still match on both peers.
+
+Player capacities above four remain experimental, but
+`Patches/ExtendedMultiplayerRoomPatches.cs` removes two deterministic vanilla
+four-slot failures. Treasure rooms create one holder per synchronized relic,
+bound the local default-focus index, and distribute award/fight hands by player
+count; rest sites create one ordered character container per player before the
+vanilla `_Ready()` loop indexes it. The patch does not alter treasure generation,
+votes, award ownership, rest-site choices, or any multiplayer serialization.
 
 Local mod enable/disable compatibility is handled in
 `Patches/AndroidSettingsPatches.cs`: companion `mod_settings.mods_enabled`,

@@ -94,6 +94,13 @@ Current implementation (`STS2AndroidPortCompat`):
   companion `touch_lift_preview` / `touch_lift_retap_action` settings.
 - `AndroidInputCompatPatches` bridges Android back-button, two-finger inspect
   right-click, and trigger-axis controller compatibility into original input.
+- `ExtendedMultiplayerRoomPatches` keeps the original multiplayer synchronizers
+  authoritative while extending client room UI beyond the four prebuilt slots:
+  treasure rooms create and lay out one holder per synchronized relic, use a
+  bounded default focus target, spread award/fight hands around the screen, and
+  rest sites create one ordered character container per player. A commercial-
+  code-free synthetic regression is available through
+  `tools/test-extended-multiplayer-rooms.sh`.
 - `LanMultiplayerPatches` bridges companion LAN settings while leaving the
   original `MessageTypes` ID assignment and `NetMessageBus`
   serialization/deserialization untouched. It adds configured compatibility

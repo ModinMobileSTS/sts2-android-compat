@@ -296,8 +296,8 @@ public static class AndroidInGameSettingsPatches
         AddSwitchRow(content, "android_volume_up_soft_keyboard", T("音量上键打开软键盘", "Volume up opens keyboard"), false, null);
         AddSwitchRow(content, "show_mobile_emoji_button", T("显示联机表情按钮", "Show multiplayer emoji button"), true, null);
         AddSwitchRow(content, "quick_sl_enabled", T("启用快速 SL / 重打按钮", "Enable quick retry button"), true, null);
-        AddSwitchRow(content, "max_multiplayer_enabled", T("启用自定义最大联机人数", "Enable custom max multiplayer players"), true, null);
-        AddIntPaginatorRow(content, "max_multiplayer_players", T("最大联机人数", "Max multiplayer players"), Range(1, 128, 1), 4, v => v.ToString(), null);
+        AddSwitchRow(content, "max_multiplayer_enabled", T("启用实验性自定义最大联机人数", "Enable experimental custom max players"), true, null);
+        AddIntPaginatorRow(content, "max_multiplayer_players", T("实验性最大联机人数", "Experimental max players"), Range(1, 128, 1), 4, v => v.ToString(), null);
         AddSwitchRow(content, "lan_multiplayer_enabled", T("本地联机补丁", "Local multiplayer patch"), true, null);
         AddTextRow(content, "lan_custom_player_id", T("LAN 自定义玩家 ID", "LAN custom player ID"), "", null);
     }

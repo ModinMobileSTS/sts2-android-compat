@@ -34,7 +34,10 @@ public static class CombatAnimationWarmupPatches
     private static readonly FieldInfo SpineAnimatorField = AccessTools.Field(typeof(NCreature), "_spineAnimator");
     private static readonly FieldInfo AnimatorAnyStateField = AccessTools.Field(typeof(CreatureAnimator), "_anyState");
     private static readonly FieldInfo AnimatorCurrentStateField = AccessTools.Field(typeof(CreatureAnimator), "_currentState");
-    private static readonly FieldInfo AnimStateBranchesField = AccessTools.Field(typeof(AnimState), "_branchedStates");
+    private static readonly FieldInfo AnimStateBranchesField =
+        AccessTools.Field(typeof(AnimState), "_triggerBranchedStates")
+        ?? AccessTools.Field(typeof(AnimState), "_branchedStates");
+    private static readonly FieldInfo AnimStateNextStatesField = AccessTools.Field(typeof(AnimState), "_nextStates");
 
     public static void Apply(Harmony harmony)
     {
@@ -481,7 +484,7 @@ public static class CombatAnimationWarmupPatches
         try
         {
             MegaTrackEntry track;
-#if STS2_TARGET_1080 || STS2_TARGET_1090 || STS2_TARGET_1100
+#if STS2_TARGET_1080 || STS2_TARGET_1090 || STS2_TARGET_1100 || STS2_TARGET_1110
             creature.SpineAnimation.SetAnimation(animationName, IsLoopingAnimationName(animationName), 0);
             track = creature.SpineAnimation.GetCurrentTrack();
 #else
@@ -578,18 +581,25 @@ public static class CombatAnimationWarmupPatches
 
             foreach (object value in branches.Values)
             {
-                if (value is not IEnumerable branchList)
-                    continue;
-                foreach (object branch in branchList)
-                {
-                    AnimState child = TryGetBranchState(branch);
-                    if (child != null)
-                        CollectTriggerNamesFromState(child, names, visited);
-                }
+                if (value is IEnumerable branchList)
+                    CollectChildStates(branchList, names, visited);
             }
         }
 
+        if (AnimStateNextStatesField?.GetValue(state) is IEnumerable nextStates)
+            CollectChildStates(nextStates, names, visited);
+
         CollectTriggerNamesFromState(state.NextState, names, visited);
+    }
+
+    private static void CollectChildStates(IEnumerable branches, ISet<string> names, ISet<AnimState> visited)
+    {
+        foreach (object branch in branches)
+        {
+            AnimState child = TryGetBranchState(branch);
+            if (child != null)
+                CollectTriggerNamesFromState(child, names, visited);
+        }
     }
 
     private static AnimState TryGetBranchState(object branch)

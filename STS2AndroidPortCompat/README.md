@@ -12,7 +12,13 @@ Build and stage into the Android shell:
 tools/android/build-port-mod.sh
 ```
 
-Compile against configured reference DLLs (from the parent repository `.env`):
+Compile the current v0.111.0 target against its original PC references:
+
+```bash
+REFERENCE_FLAVOR=original-v0.111.0 tools/android/build-port-mod.sh
+```
+
+Compile against another configured reference set, for example the legacy v0.106.1 target:
 
 ```bash
 REFERENCE_FLAVOR=original-v0.106.1 tools/android/build-port-mod.sh
@@ -114,8 +120,11 @@ The LAN patch deliberately does not patch `MessageTypes.ToId`,
 `MessageTypes.TryGetMessageType`, or `NetMessageBus.TryDeserializeMessage`.
 The matching original game assembly remains the sole wire-protocol
 implementation, including its per-version and MOD-aware message ordering, so an
-Android peer uses the same codec as an unmodified PC peer. Protocol-affecting
-MODs must still match on both peers.
+Android peer uses the same codec as an unmodified PC peer. For v0.111.0 the
+compat layer supplies `PeerVersionInfo.LocalDefault()` when constructing the
+original host/client services, then leaves the original `HandshakeManager` in
+control of version, ModelDb hash, and MOD validation. Protocol-affecting MODs
+must still match on both peers.
 
 Player capacities above four remain experimental, but
 `Patches/ExtendedMultiplayerRoomPatches.cs` removes two deterministic vanilla

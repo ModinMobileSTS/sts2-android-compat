@@ -54,7 +54,7 @@ public static class LanMultiplayerPatches
         if (!ShouldApplyLocalLanPatches())
             return;
 
-#if !STS2_TARGET_1100
+#if !STS2_TARGET_1100 && !STS2_TARGET_1110
         PatchHelper.Patch(harmony, typeof(InitialGameInfoMessage), "Basic", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(InitialGameInfoBasicPostfix)));
 #endif
         PatchHelper.Patch(harmony, typeof(ModManager), "GetGameplayRelevantModNameList", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(ModNameListPostfix)));
@@ -766,7 +766,9 @@ public static class LanMultiplayerPatches
         hostInput.Text = host;
         portInput.Text = port.ToString();
         SaveJoinEndpoint(host, port);
-#if STS2_TARGET_1080 || STS2_TARGET_1090 || STS2_TARGET_1100
+#if STS2_TARGET_1110
+        var joinFlow = new JoinFlow(new NetClientGameService(PeerVersionInfo.LocalDefault()));
+#elif STS2_TARGET_1080 || STS2_TARGET_1090 || STS2_TARGET_1100
         var joinFlow = new JoinFlow(new NetClientGameService());
 #else
         var joinFlow = new JoinFlow();
@@ -787,6 +789,15 @@ public static class LanMultiplayerPatches
         throw new NotSupportedException($"JoinGameAsync reflection target missing; manual fallback for state {result.sessionState} is not implemented.");
     }
 
+    private static NetHostGameService CreateNetHostGameService()
+    {
+#if STS2_TARGET_1110
+        return new NetHostGameService(PeerVersionInfo.LocalDefault());
+#else
+        return new NetHostGameService();
+#endif
+    }
+
     private static Task StartHostFromSubmenuAsync(GameMode gameMode, Control loadingOverlay, NSubmenuStack stack)
     {
         var platformType = PlatformType.None;
@@ -794,7 +805,7 @@ public static class LanMultiplayerPatches
         loadingOverlay.Visible = true;
         try
         {
-            var netService = new NetHostGameService();
+            var netService = CreateNetHostGameService();
             var error = netService.StartENetHost(DefaultPort, hostCapacity);
             if (!error.HasValue)
             {
@@ -847,7 +858,7 @@ public static class LanMultiplayerPatches
         loadingOverlay.Visible = true;
         try
         {
-            var netService = new NetHostGameService();
+            var netService = CreateNetHostGameService();
             var error = netService.StartENetHost(DefaultPort, hostCapacity);
             if (!error.HasValue)
             {

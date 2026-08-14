@@ -106,7 +106,10 @@ Current implementation (`STS2AndroidPortCompat`):
   serialization/deserialization untouched. It adds configured compatibility
   mod names to multiplayer checks, honors persistent/custom LAN player IDs,
   replaces the no-Steam join screen with host/port input, and hosts ENet games
-  with the configured player capacity.
+  with the configured player capacity. The v0.111 target passes
+  `PeerVersionInfo.LocalDefault()` into the original host/client services and
+  lets the original transport-level `HandshakeManager` own version, ModelDb
+  hash, and MOD compatibility validation.
 
 Build locally from the parent repository after configuring `.env`:
 
@@ -125,10 +128,14 @@ export STS2_ORIGINAL_V1080_REFERENCE_DIR=/path/to/original-v0.108.0/bin/Debug
 export STS2_ORIGINAL_V1090_REFERENCE_DIR=/path/to/original-v0.109.1/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.109.0
 
-# Shared current v0.110.x public-beta API/protocol target.
+# Shared v0.110.x public-beta API/protocol target.
 # Keep the historical V1100 variable/flavor name; point it at the latest v0.110.1 gate.
 export STS2_ORIGINAL_V1100_REFERENCE_DIR=/path/to/original-v0.110.1/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.110.0
+
+# Current v0.111.0 public-beta API/handshake target.
+export STS2_ORIGINAL_V1110_REFERENCE_DIR=/path/to/original-v0.111.0/bin/Debug
+./tools/build-compat-matrix.sh --target v0.111.0
 ```
 
 `tools/build-compat-pack.sh` is the legacy schema-1 path; use it only when also providing a matching `COMPAT_MANIFEST`.

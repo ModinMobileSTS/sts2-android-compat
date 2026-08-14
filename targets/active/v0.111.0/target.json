@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "target_id": "v0.111.0",
+  "status": "active",
+  "display_name": "STS2 v0.111.0",
+  "versions": [
+    "v0.111.0"
+  ],
+  "reference_flavor": "original-v0.111.0",
+  "channel": "beta",
+  "source": "original_pc_reference_v0.111.0",
+  "steam_branch": "public-beta",
+  "sts2_dll_sha256": "0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9",
+  "compile_constants": [
+    "STS2_TARGET_1110"
+  ],
+  "notes": [
+    "Independent flattened target for the v0.111.0 public-beta managed API and multiplayer handshake update; it must not be merged into the v0.110.x variant.",
+    "LAN host and client services receive PeerVersionInfo.LocalDefault() and then use the original v0.111 HandshakeManager, MessageTypes, and NetMessageBus implementation without an Android-owned wire protocol.",
+    "Combat animation warmup resolves the renamed trigger-branch state map and follows the new conditional next-state graph while retaining legacy field fallbacks for older targets."
+  ]
+}

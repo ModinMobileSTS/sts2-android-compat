@@ -100,9 +100,14 @@ Current implementation (`STS2AndroidPortCompat`):
   Because the compat assembly uses plain `Microsoft.NET.Sdk` without the game's
   Godot source-generated virtual callback dispatch, the dynamic button connects
   `Control.gui_input` and `Timer.timeout` signals explicitly; an `NGame._Input`
-  postfix forwards active-pointer drag and release events. State and interaction
+  postfix forwards active-pointer drag and release events. Button and wheel
+  centers are resolved in viewport coordinates with the full CanvasItem
+  transforms, then the wheel correction is converted back into its parent's
+  coordinates; this avoids the lower-right preview offset caused by mixing
+  viewport touch positions with canvas `GlobalPosition`. State and interaction
   diagnostics cover platform, setting, network, scene, geometry, press, wheel
-  show, release/react, and reflection failures while single-player stays hidden.
+  requested/actual centers and alignment error, release/react, and reflection
+  failures while single-player stays hidden.
 - `AndroidInputCompatPatches` bridges Android back-button, two-finger inspect
   right-click, and trigger-axis controller compatibility into original input.
 - `ExtendedMultiplayerRoomPatches` keeps the original multiplayer synchronizers

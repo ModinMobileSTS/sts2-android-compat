@@ -1,5 +1,7 @@
 using System;
 using System.Reflection;
+using NumericsMatrix3x2 = System.Numerics.Matrix3x2;
+using NumericsVector2 = System.Numerics.Vector2;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Nodes;
@@ -299,7 +301,7 @@ public partial class AndroidMobileReactionButton : Control
             if (!TryGetPress(inputEvent, out var pointerId))
                 return;
 
-            var wheelCenter = GetButtonCenter();
+            var wheelCenter = GetButtonCenterInViewport();
             var wheel = NGame.Instance?.ReactionWheel;
             if (wheel == null || !TryShowWheel(wheel, wheelCenter))
                 return;
@@ -366,9 +368,9 @@ public partial class AndroidMobileReactionButton : Control
     }
 
 
-    private Vector2 GetButtonCenter()
+    private Vector2 GetButtonCenterInViewport()
     {
-        return GlobalPosition + Size * 0.5f;
+        return GetViewportCenter(this);
     }
 
     private bool TryGetPress(InputEvent inputEvent, out int pointerId)
@@ -454,6 +456,46 @@ public partial class AndroidMobileReactionButton : Control
             pressed ? 0.05 : 0.15);
     }
 
+    private static Vector2 GetViewportCenter(Control control)
+    {
+        var center = MobileReactionWheelPlacement.GetTransformedCenter(
+            ToNumerics(control.GetGlobalTransformWithCanvas()),
+            new NumericsVector2(control.Size.X, control.Size.Y));
+        return new Vector2(center.X, center.Y);
+    }
+
+    private static bool TryCenterWheelOnViewportPoint(Control wheel, Vector2 desiredCenter, out Vector2 actualCenter)
+    {
+        actualCenter = Vector2.Zero;
+        if (wheel.GetParent() is not CanvasItem parent)
+            return false;
+
+        if (!MobileReactionWheelPlacement.TryGetParentPositionAdjustment(
+                ToNumerics(parent.GetGlobalTransformWithCanvas()),
+                ToNumerics(wheel.GetTransform()),
+                new NumericsVector2(wheel.Size.X, wheel.Size.Y),
+                new NumericsVector2(desiredCenter.X, desiredCenter.Y),
+                out var adjustment))
+        {
+            return false;
+        }
+
+        wheel.Position += new Vector2(adjustment.X, adjustment.Y);
+        actualCenter = GetViewportCenter(wheel);
+        return true;
+    }
+
+    private static NumericsMatrix3x2 ToNumerics(Transform2D transform)
+    {
+        return new NumericsMatrix3x2(
+            transform.X.X,
+            transform.X.Y,
+            transform.Y.X,
+            transform.Y.Y,
+            transform.Origin.X,
+            transform.Origin.Y);
+    }
+
     private static bool TryShowWheel(Control wheel, Vector2 center)
     {
         try
@@ -470,10 +512,16 @@ public partial class AndroidMobileReactionButton : Control
             SetLocalPlayerMarker(wheel, marker);
             marker.Position = (wheel.Size - marker.Size) * 0.5f;
             marker.Rotation = 0f;
-            wheel.GlobalPosition = center - wheel.Size * wheel.Scale * 0.5f;
+            if (!TryCenterWheelOnViewportPoint(wheel, center, out var actualCenter))
+            {
+                PatchHelper.Log("Mobile reaction wheel show failed: viewport placement could not be resolved.");
+                return false;
+            }
             wheel.Visible = true;
             Input.MouseMode = Input.MouseModeEnum.Hidden;
-            PatchHelper.Log($"Mobile reaction wheel shown: center={center}; size={wheel.Size}; scale={wheel.Scale}");
+            PatchHelper.Log(
+                $"Mobile reaction wheel shown: requested_center={center}; actual_center={actualCenter}; "
+                + $"alignment_error={actualCenter.DistanceTo(center)}; size={wheel.Size}; scale={wheel.Scale}");
             return true;
         }
         catch (Exception exception)

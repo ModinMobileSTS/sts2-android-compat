@@ -9,5 +9,6 @@
   <ItemGroup>
     <Compile Include="../../STS2AndroidPortCompat/Patches/MobileReactionVisibilityPolicy.cs" Link="MobileReactionVisibilityPolicy.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/MobileReactionPointerState.cs" Link="MobileReactionPointerState.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/MobileReactionWheelPlacement.cs" Link="MobileReactionWheelPlacement.cs" />
   </ItemGroup>
 </Project>

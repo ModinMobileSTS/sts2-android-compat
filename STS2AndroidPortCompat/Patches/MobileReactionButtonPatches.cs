@@ -600,9 +600,9 @@ public partial class AndroidMobileReactionButton : Control
     {
         try
         {
-            if (react)
-                Invoke(wheel, "React");
             Input.MouseMode = Input.MouseModeEnum.Visible;
+            if (react)
+                DispatchSelectedReaction(wheel);
             wheel.Visible = false;
             if (TryResetWedgeLayout(wheel, out var maximumCorrection))
             {
@@ -620,6 +620,45 @@ public partial class AndroidMobileReactionButton : Control
             if (wheel != null)
                 wheel.Visible = false;
         }
+    }
+
+    private void DispatchSelectedReaction(Control wheel)
+    {
+        if (GetField(wheel, "_selectedWedge") is not NReactionWheelWedge selectedWedge)
+        {
+            PatchHelper.Log("Mobile reaction dispatch skipped: no wedge is selected.");
+            return;
+        }
+
+        var container = NGame.Instance?.ReactionContainer;
+        if (container == null)
+        {
+            PatchHelper.Log("Mobile reaction dispatch skipped: reaction container is unavailable.");
+            return;
+        }
+
+        if (!MobileReactionWheelPlacement.TryGetLocalPoint(
+                ToNumerics(container.GetGlobalTransformWithCanvas()),
+                new NumericsVector2(_wheelCenter.X, _wheelCenter.Y),
+                out var localPoint))
+        {
+            PatchHelper.Log("Mobile reaction dispatch failed: reaction-container viewport transform is singular.");
+            return;
+        }
+
+        var reaction = selectedWedge.Reaction;
+        if (reaction == null)
+        {
+            PatchHelper.Log("Mobile reaction dispatch skipped: selected wedge has no reaction texture.");
+            return;
+        }
+
+        var reactionPosition = new Vector2(localPoint.X, localPoint.Y);
+        container.DoLocalReaction(reaction, reactionPosition);
+        PatchHelper.Log(
+            $"Mobile reaction dispatched: texture={reaction.ResourcePath}; "
+            + $"viewport_position={_wheelCenter}; control_position={reactionPosition}; "
+            + $"network_ready={container.InMultiplayer}.");
     }
 
     private bool TryResetWedgeLayout(Control wheel, out float maximumCorrection)

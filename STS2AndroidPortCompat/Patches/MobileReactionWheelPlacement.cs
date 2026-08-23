@@ -8,6 +8,22 @@ internal static class MobileReactionWheelPlacement
     {
         return Vector2.Transform(size * 0.5f, localToTarget);
     }
+
+    public static bool TryGetLocalPoint(
+        Matrix3x2 localToViewport,
+        Vector2 pointInViewport,
+        out Vector2 pointInLocal)
+    {
+        if (!Matrix3x2.Invert(localToViewport, out var viewportToLocal))
+        {
+            pointInLocal = default;
+            return false;
+        }
+
+        pointInLocal = Vector2.Transform(pointInViewport, viewportToLocal);
+        return float.IsFinite(pointInLocal.X) && float.IsFinite(pointInLocal.Y);
+    }
+
     public static Vector2 GetAnchoredPosition(
         Vector2 capturedPosition,
         Vector2 capturedParentSize,

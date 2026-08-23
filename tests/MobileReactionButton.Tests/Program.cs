@@ -61,6 +61,24 @@ var transformedButtonCenter = MobileReactionWheelPlacement.GetTransformedCenter(
 AssertNear("button center includes canvas X transform", 172f, transformedButtonCenter.X);
 AssertNear("button center includes canvas Y transform", 146f, transformedButtonCenter.Y);
 
+AssertEqual(
+    "reaction container converts viewport point back to control space",
+    true,
+    MobileReactionWheelPlacement.TryGetLocalPoint(
+        buttonToViewport,
+        transformedButtonCenter,
+        out var reactionControlPoint));
+AssertNear("local reaction X reverses canvas transform", 48f, reactionControlPoint.X);
+AssertNear("local reaction Y reverses canvas transform", 48f, reactionControlPoint.Y);
+AssertEqual(
+    "singular reaction container transform fails closed",
+    false,
+    MobileReactionWheelPlacement.TryGetLocalPoint(
+        default,
+        transformedButtonCenter,
+        out _));
+
+
 var parentToViewport = new Matrix3x2(2f, 0f, 0f, 2f, 100f, 50f);
 var wheelToParent = new Matrix3x2(0.75f, 0f, 0f, 0.75f, 800f, 500f);
 var desiredWheelCenter = new Vector2(1700f, 1000f);
@@ -144,4 +162,4 @@ for (var index = 0; index < positionsAfterFullTurn.Length; index++)
         positionsAfterFullTurn[index].Y);
 }
 
-Console.WriteLine("Mobile reaction button policy, pointer-state, viewport-placement, and wedge-baseline tests passed.");
+Console.WriteLine("Mobile reaction button policy, pointer-state, viewport-placement, local-echo, and wedge-baseline tests passed.");

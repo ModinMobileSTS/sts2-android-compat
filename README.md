@@ -92,6 +92,17 @@ Current implementation (`STS2AndroidPortCompat`):
   for releases outside the play zone / untargeted releases.
 - `MobileTapPreviewPatches` adds a first-pass tap-to-lift card preview flow using
   companion `touch_lift_preview` / `touch_lift_retap_action` settings.
+- `MobileReactionButtonPatches` injects the Android reaction-wheel button while
+  reusing the payload's reaction synchronizer. Android detection accepts either
+  the mobile feature tag or the Android OS name, and networking lifecycle hooks
+  refresh visibility immediately. Visible multiplayer lobby/player containers
+  and ready/wait overlays keep the button available before the run starts.
+  Because the compat assembly uses plain `Microsoft.NET.Sdk` without the game's
+  Godot source-generated virtual callback dispatch, the dynamic button connects
+  `Control.gui_input` and `Timer.timeout` signals explicitly; an `NGame._Input`
+  postfix forwards active-pointer drag and release events. State and interaction
+  diagnostics cover platform, setting, network, scene, geometry, press, wheel
+  show, release/react, and reflection failures while single-player stays hidden.
 - `AndroidInputCompatPatches` bridges Android back-button, two-finger inspect
   right-click, and trigger-axis controller compatibility into original input.
 - `ExtendedMultiplayerRoomPatches` keeps the original multiplayer synchronizers

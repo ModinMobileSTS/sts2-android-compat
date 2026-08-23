@@ -128,6 +128,7 @@ public static class ModEntry
             MerchantSelectionConfirmationPatches.Apply(_harmony);
             MobileTooltipPatches.Apply(_harmony);
             MobileTapPreviewPatches.Apply(_harmony);
+            MobileReactionButtonPatches.Apply(_harmony);
             MobileHandLayoutPatches.Apply(_harmony);
             ExtendedMultiplayerRoomPatches.Apply(_harmony);
             IntentAnimationPatches.Apply(_harmony);

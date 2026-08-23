@@ -103,11 +103,14 @@ Current implementation (`STS2AndroidPortCompat`):
   postfix forwards active-pointer drag and release events. Button and wheel
   centers are resolved in viewport coordinates with the full CanvasItem
   transforms, then the wheel correction is converted back into its parent's
-  coordinates; this avoids the lower-right preview offset caused by mixing
-  viewport touch positions with canvas `GlobalPosition`. State and interaction
-  diagnostics cover platform, setting, network, scene, geometry, press, wheel
-  requested/actual centers and alignment error, release/react, and reflection
-  failures while single-player stays hidden.
+  coordinates. On first show, the compat path also captures every anchored
+  wedge's live neutral position and refreshes the payload's `_defaultPosition`
+  after responsive wheel-size changes; selection still moves one wedge radially,
+  but deselection and a full sweep return all eight wedges to stable baselines.
+  Diagnostics cover platform, setting, network, scene, geometry, press, wheel
+  requested/actual centers, alignment error, stale payload wedge delta, reset
+  correction, release/react, and reflection failures while single-player stays
+  hidden.
 - `AndroidInputCompatPatches` bridges Android back-button, two-finger inspect
   right-click, and trigger-axis controller compatibility into original input.
 - `ExtendedMultiplayerRoomPatches` keeps the original multiplayer synchronizers

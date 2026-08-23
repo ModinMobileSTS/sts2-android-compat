@@ -194,6 +194,18 @@ public partial class AndroidMobileReactionButton : Control
     private const ulong VisibilityPollIntervalMsec = 250;
 
     private static readonly BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
+    private static readonly string[] WedgeFieldNames =
+    {
+        "_rightWedge",
+        "_downRightWedge",
+        "_downWedge",
+        "_downLeftWedge",
+        "_leftWedge",
+        "_upLeftWedge",
+        "_upWedge",
+        "_upRightWedge",
+    };
+
 
     private readonly MobileReactionPointerState _pointerState = new();
     private bool _runtimeInitialized;
@@ -202,6 +214,14 @@ public partial class AndroidMobileReactionButton : Control
     private Vector2 _wheelCenter;
     private Control _visuals;
     private Tween _pressTween;
+    private readonly Control[] _wheelWedges = new Control[WedgeFieldNames.Length];
+    private readonly Vector2[] _wheelWedgeNeutralPositions = new Vector2[WedgeFieldNames.Length];
+    private readonly Vector2[] _wheelWedgeAnchors = new Vector2[WedgeFieldNames.Length];
+    private readonly Color[] _wheelWedgeNeutralColors = new Color[WedgeFieldNames.Length];
+    private Control _wedgeLayoutWheel;
+    private Vector2 _capturedWheelSize;
+    private bool _hasWedgeLayout;
+
 
     private bool HasActivePointer => _pointerState.HasActivePointer;
 
@@ -496,7 +516,7 @@ public partial class AndroidMobileReactionButton : Control
             transform.Origin.Y);
     }
 
-    private static bool TryShowWheel(Control wheel, Vector2 center)
+    private bool TryShowWheel(Control wheel, Vector2 center)
     {
         try
         {
@@ -507,7 +527,11 @@ public partial class AndroidMobileReactionButton : Control
                 return false;
             }
 
-            ClearSelection(wheel);
+            if (!TryResetWedgeLayout(wheel, out var maximumCorrection))
+            {
+                PatchHelper.Log("Mobile reaction wheel wedge baseline could not be resolved; using payload animation state.");
+                ClearSelection(wheel);
+            }
             SetField(wheel, "_centerPosition", center);
             SetLocalPlayerMarker(wheel, marker);
             marker.Position = (wheel.Size - marker.Size) * 0.5f;
@@ -521,7 +545,8 @@ public partial class AndroidMobileReactionButton : Control
             Input.MouseMode = Input.MouseModeEnum.Hidden;
             PatchHelper.Log(
                 $"Mobile reaction wheel shown: requested_center={center}; actual_center={actualCenter}; "
-                + $"alignment_error={actualCenter.DistanceTo(center)}; size={wheel.Size}; scale={wheel.Scale}");
+                + $"alignment_error={actualCenter.DistanceTo(center)}; size={wheel.Size}; scale={wheel.Scale}; "
+                + $"wedge_reset_max={maximumCorrection}");
             return true;
         }
         catch (Exception exception)
@@ -571,7 +596,7 @@ public partial class AndroidMobileReactionButton : Control
         }
     }
 
-    private static void HideWheel(Control wheel, bool react)
+    private void HideWheel(Control wheel, bool react)
     {
         try
         {
@@ -579,7 +604,15 @@ public partial class AndroidMobileReactionButton : Control
                 Invoke(wheel, "React");
             Input.MouseMode = Input.MouseModeEnum.Visible;
             wheel.Visible = false;
-            ClearSelection(wheel);
+            if (TryResetWedgeLayout(wheel, out var maximumCorrection))
+            {
+                if (maximumCorrection > 0.5f)
+                    PatchHelper.Log($"Reset mobile reaction wedges after hide: maximum_correction={maximumCorrection}.");
+            }
+            else
+            {
+                ClearSelection(wheel);
+            }
         }
         catch (Exception exception)
         {
@@ -587,6 +620,80 @@ public partial class AndroidMobileReactionButton : Control
             if (wheel != null)
                 wheel.Visible = false;
         }
+    }
+
+    private bool TryResetWedgeLayout(Control wheel, out float maximumCorrection)
+    {
+        maximumCorrection = 0f;
+        if (!TryCaptureWedgeLayout(wheel))
+            return false;
+
+        SetField(wheel, "_selectedWedge", null);
+        var capturedWheelSize = new NumericsVector2(_capturedWheelSize.X, _capturedWheelSize.Y);
+        var currentWheelSize = new NumericsVector2(wheel.Size.X, wheel.Size.Y);
+        for (var index = 0; index < _wheelWedges.Length; index++)
+        {
+            var wedge = _wheelWedges[index];
+            if (wedge == null || !GodotObject.IsInstanceValid(wedge))
+                return false;
+
+            if (GetField(wedge, "_tween") is Tween tween && GodotObject.IsInstanceValid(tween))
+                tween.Kill();
+            SetField(wedge, "_tween", null);
+
+            var neutral = MobileReactionWheelPlacement.GetAnchoredPosition(
+                new NumericsVector2(
+                    _wheelWedgeNeutralPositions[index].X,
+                    _wheelWedgeNeutralPositions[index].Y),
+                capturedWheelSize,
+                currentWheelSize,
+                new NumericsVector2(_wheelWedgeAnchors[index].X, _wheelWedgeAnchors[index].Y));
+            var neutralPosition = new Vector2(neutral.X, neutral.Y);
+            maximumCorrection = Mathf.Max(maximumCorrection, wedge.Position.DistanceTo(neutralPosition));
+            SetField(wedge, "_defaultPosition", neutralPosition);
+            wedge.Position = neutralPosition;
+            wedge.SelfModulate = _wheelWedgeNeutralColors[index];
+        }
+        return true;
+    }
+
+    private bool TryCaptureWedgeLayout(Control wheel)
+    {
+        if (_hasWedgeLayout
+            && ReferenceEquals(_wedgeLayoutWheel, wheel)
+            && GodotObject.IsInstanceValid(_wedgeLayoutWheel))
+        {
+            return true;
+        }
+
+        var largestPayloadDefaultDelta = Vector2.Zero;
+        var largestPayloadDefaultDistanceSquared = 0f;
+        for (var index = 0; index < WedgeFieldNames.Length; index++)
+        {
+            if (GetField(wheel, WedgeFieldNames[index]) is not Control wedge)
+                return false;
+            _wheelWedges[index] = wedge;
+            _wheelWedgeNeutralPositions[index] = wedge.Position;
+            _wheelWedgeAnchors[index] = new Vector2(wedge.AnchorLeft, wedge.AnchorTop);
+            _wheelWedgeNeutralColors[index] = wedge.SelfModulate;
+            if (GetField(wedge, "_defaultPosition") is Vector2 payloadDefaultPosition)
+            {
+                var payloadDefaultDelta = payloadDefaultPosition - wedge.Position;
+                if (payloadDefaultDelta.LengthSquared() > largestPayloadDefaultDistanceSquared)
+                {
+                    largestPayloadDefaultDistanceSquared = payloadDefaultDelta.LengthSquared();
+                    largestPayloadDefaultDelta = payloadDefaultDelta;
+                }
+            }
+        }
+
+        _wedgeLayoutWheel = wheel;
+        _capturedWheelSize = wheel.Size;
+        _hasWedgeLayout = true;
+        PatchHelper.Log(
+            $"Captured mobile reaction wedge baseline: wheel_size={_capturedWheelSize}; "
+            + $"largest_payload_default_delta={largestPayloadDefaultDelta}.");
+        return true;
     }
 
     private static void ClearSelection(Control wheel)

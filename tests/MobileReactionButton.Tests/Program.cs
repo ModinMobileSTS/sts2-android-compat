@@ -92,4 +92,56 @@ AssertEqual(
         desiredWheelCenter,
         out _));
 
-Console.WriteLine("Mobile reaction button policy, pointer-state, and viewport-placement tests passed.");
+var capturedWheelSize = new Vector2(900f, 900f);
+var resizedWheelSize = new Vector2(500f, 500f);
+var centeredAnchor = new Vector2(0.5f, 0.5f);
+var capturedWedgePositions = new[]
+{
+    new Vector2(320f, 210f),
+    new Vector2(360f, 290f),
+    new Vector2(330f, 380f),
+    new Vector2(245f, 420f),
+    new Vector2(155f, 395f),
+    new Vector2(115f, 305f),
+    new Vector2(145f, 215f),
+    new Vector2(230f, 170f),
+};
+var neutralWedgePositions = new Vector2[capturedWedgePositions.Length];
+for (var index = 0; index < capturedWedgePositions.Length; index++)
+{
+    neutralWedgePositions[index] = MobileReactionWheelPlacement.GetAnchoredPosition(
+        capturedWedgePositions[index],
+        capturedWheelSize,
+        resizedWheelSize,
+        centeredAnchor);
+    AssertNear(
+        $"resized wedge {index} neutral X follows its centered anchor",
+        capturedWedgePositions[index].X - 200f,
+        neutralWedgePositions[index].X);
+    AssertNear(
+        $"resized wedge {index} neutral Y follows its centered anchor",
+        capturedWedgePositions[index].Y - 200f,
+        neutralWedgePositions[index].Y);
+}
+
+var positionsAfterFullTurn = (Vector2[])neutralWedgePositions.Clone();
+for (var index = 0; index < positionsAfterFullTurn.Length; index++)
+{
+    var angle = index * MathF.PI / 4f;
+    var selectedOffset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * 25f;
+    positionsAfterFullTurn[index] = neutralWedgePositions[index] + selectedOffset;
+    positionsAfterFullTurn[index] = neutralWedgePositions[index];
+}
+for (var index = 0; index < positionsAfterFullTurn.Length; index++)
+{
+    AssertNear(
+        $"full-turn wedge {index} returns to neutral X",
+        neutralWedgePositions[index].X,
+        positionsAfterFullTurn[index].X);
+    AssertNear(
+        $"full-turn wedge {index} returns to neutral Y",
+        neutralWedgePositions[index].Y,
+        positionsAfterFullTurn[index].Y);
+}
+
+Console.WriteLine("Mobile reaction button policy, pointer-state, viewport-placement, and wedge-baseline tests passed.");

@@ -8,6 +8,15 @@ internal static class MobileReactionWheelPlacement
     {
         return Vector2.Transform(size * 0.5f, localToTarget);
     }
+    public static Vector2 GetAnchoredPosition(
+        Vector2 capturedPosition,
+        Vector2 capturedParentSize,
+        Vector2 currentParentSize,
+        Vector2 anchor)
+    {
+        return capturedPosition + (currentParentSize - capturedParentSize) * anchor;
+    }
+
 
     public static bool TryGetParentPositionAdjustment(
         Matrix3x2 parentToViewport,

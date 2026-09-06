@@ -52,6 +52,12 @@ Current implementation (`STS2AndroidPortCompat`):
   Each resume generation performs one deferred consistency check and at most one
   compare-before-set repair; stale targets are rejected by revision and a failed
   final check only logs a warning instead of entering a viewport rebuild loop.
+- `MerchantLayoutPatches` animates the shop panel's anchor-relative offset against
+  the inventory's live Control height, not the root `ContentScaleSize`. Global
+  scale and UI scale can be applied before opening, after opening, or during the
+  animation without a stale absolute Y target pushing the bottom row offscreen.
+  Item sizes, purchase behavior, and the original easing remain unchanged; this
+  does not shrink oversized content to fit arbitrarily high zoom levels.
 - `MobileHandLayoutPatches` applies the companion `show_more_hand_card_text` /
   `show_more_hand_card_text_lift_height_percent` hand lift as a Harmony
   post-layout offset without rebuilding the game body.

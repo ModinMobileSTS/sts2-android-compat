@@ -85,6 +85,7 @@ public static class ModEntry
         // Harmony wrapper generation can initialize patched UI types on Android/Mono.
         // Install the early localization guard above before touching run-history screens.
         ApplyPatchGroup("Run history platform fallback patches", () => RunHistoryPatches.Apply(_harmony));
+        ApplyPatchGroup("Android background audio lifecycle", () => AndroidAudioLifecyclePatches.Apply(_harmony));
 
         ApplyPatchGroup("Release/settings/display patches", () =>
         {

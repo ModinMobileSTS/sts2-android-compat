@@ -100,16 +100,6 @@ public static class LifecycleAndPerformancePatches
             harmony.Patch(cacheUnloadMissedAssets, prefix: new HarmonyMethod(PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(AssetCacheUnloadMissedCacheAssetsPrefix))));
             PatchHelper.Log("Patched AssetCache.UnloadMissedCacheAssets for Android protected warm cache.");
         }
-
-        var muteHandlerType = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Nodes.NMuteInBackgroundHandler");
-        if (muteHandlerType != null)
-        {
-            // Do not patch inherited Godot lifecycle wrappers (_Ready/_Process) or _Notification
-            // in the imported PC assembly. On Android/Godot 4.5 those Harmony lookups can force
-            // GodotSharp MethodName static constructors for Resource/ResourceFormat* to run while
-            // the native engine is still initializing.
-            PatchHelper.Log("Background audio lifecycle patch disabled on imported PC assembly for Android startup safety.");
-        }
     }
 
     public static void ExecuteVeryEarlyPostfix()
@@ -1228,25 +1218,6 @@ public static class LifecycleAndPerformancePatches
         }
     }
 
-    public static void MuteReadyPostfix(object __instance)
-    {
-        try
-        {
-            if (!IsAudioCompatibilityMode())
-            {
-                var node = (Godot.Node)__instance;
-                node.ProcessMode = Godot.Node.ProcessModeEnum.Always;
-                node.SetProcess(true);
-            }
-        }
-        catch (Exception exception)
-        {
-            PatchHelper.Log($"MuteReadyPostfix failed: {exception.Message}");
-        }
-    }
-
-    public static bool MuteProcessPrefix() => IsAudioCompatibilityMode();
-
     private static bool IsMasterPreloadEnabled() => AndroidSettingsBridge.GetBool("preload_enabled", true);
 
     private static bool IsStartupCommonPreloadEnabled() => IsMasterPreloadEnabled() && AndroidSettingsBridge.GetBool("preload_startup_common_enabled", true);
@@ -1467,37 +1438,4 @@ public static class LifecycleAndPerformancePatches
         return NGame.Instance;
     }
 
-    public static bool MuteNotificationPrefix(object __instance, int what)
-    {
-        if (IsAudioCompatibilityMode())
-            return true;
-        try
-        {
-            switch (what)
-            {
-                case (int)Godot.Node.NotificationWMWindowFocusOut:
-                case (int)Godot.Node.NotificationApplicationPaused:
-                case (int)Godot.Node.NotificationApplicationFocusOut:
-                    CallPrivate(__instance, "Mute");
-                    return false;
-                case (int)Godot.Node.NotificationWMWindowFocusIn:
-                case (int)Godot.Node.NotificationApplicationResumed:
-                case (int)Godot.Node.NotificationApplicationFocusIn:
-                    CallPrivate(__instance, "Unmute");
-                    return false;
-            }
-        }
-        catch (Exception exception)
-        {
-            PatchHelper.Log($"MuteNotificationPrefix failed: {exception.Message}");
-        }
-        return true;
-    }
-
-    private static bool IsAudioCompatibilityMode() => AndroidSettingsBridge.GetBool("audio_compatibility_mode", false);
-
-    private static void CallPrivate(object target, string methodName)
-    {
-        target.GetType().GetMethod(methodName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.Invoke(target, null);
-    }
 }

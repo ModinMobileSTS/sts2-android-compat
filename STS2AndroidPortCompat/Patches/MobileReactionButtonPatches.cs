@@ -20,8 +20,6 @@ namespace STS2Mobile.Patches;
 public static class MobileReactionButtonPatches
 {
     private const string ButtonName = "AndroidMobileReactionButton";
-    private const string WaitingPanelName = "ReadyAndWaitingPanel";
-    private const string WaitingOverlayName = "WaitingForOtherPlayers";
 
     public static void Apply(Harmony harmony)
     {
@@ -117,63 +115,6 @@ public static class MobileReactionButtonPatches
 
 
 
-    internal static bool IsReactionAvailable(NGame game)
-    {
-        if (game == null)
-            return false;
-
-        if (game.ReactionContainer?.InMultiplayer == true)
-            return true;
-
-        // The multiplayer lobby initializes the same network bridge, but the
-        // bridge can briefly be unavailable while a lobby screen is opening
-        // or replacing its service. The visible remote-player container is
-        // deliberately hidden in single-player screens, so it is the stable
-        // UI-level multiplayer signal for this transition window.
-        return HasVisibleMultiplayerLobby(game.RootSceneContainer?.CurrentScene)
-            || HasVisibleWaitingSurface(game.RootSceneContainer?.CurrentScene)
-            || HasVisibleWaitingSurface(NOverlayStack.Instance);
-    }
-
-    private static bool HasVisibleMultiplayerLobby(Node node)
-    {
-        if (node == null || (node is CanvasItem canvasItem && !canvasItem.Visible))
-            return false;
-
-        if (node.Name == "RemotePlayerContainer"
-            || node.Name == "RemotePlayerLoadContainer")
-        {
-            return true;
-        }
-
-        foreach (Node child in node.GetChildren())
-        {
-            if (HasVisibleMultiplayerLobby(child))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool HasVisibleWaitingSurface(Node node)
-    {
-        if (node == null || (node is CanvasItem canvasItem && !canvasItem.Visible))
-            return false;
-
-        if (node.Name == WaitingPanelName
-            || node.Name == WaitingOverlayName
-            || node.Name == "WaitingForPlayers"
-            || node.Name == "WaitingForReady")
-        {
-            return true;
-        }
-
-        foreach (Node child in node.GetChildren())
-        {
-            if (HasVisibleWaitingSurface(child))
-                return true;
-        }
-        return false;
-    }
 
 }
 
@@ -208,6 +149,7 @@ public partial class AndroidMobileReactionButton : Control
 
 
     private readonly MobileReactionPointerState _pointerState = new();
+    private readonly MobileReactionSurfaceTracker _reactionSurfaces = new();
     private bool _runtimeInitialized;
     private bool _hasReportedVisibility;
     private bool _lastReportedVisibility;
@@ -238,7 +180,8 @@ public partial class AndroidMobileReactionButton : Control
         // Godot source-generated virtual callback dispatcher. Native signals
         // and the patched NGame callback are the runtime input boundary.
         Connect(Control.SignalName.GuiInput, Callable.From<InputEvent>(HandleGuiInput));
-        Connect(Node.SignalName.TreeExiting, Callable.From(CancelInteraction));
+        Connect(Node.SignalName.TreeEntered, Callable.From(OnTreeEntered));
+        Connect(Node.SignalName.TreeExiting, Callable.From(OnTreeExiting));
 
         var visibilityTimer = new Timer
         {
@@ -250,6 +193,17 @@ public partial class AndroidMobileReactionButton : Control
         visibilityTimer.Connect(Timer.SignalName.Timeout, Callable.From(OnVisibilityPollTimeout));
         AddChild(visibilityTimer);
     }
+    private void OnTreeEntered()
+    {
+        RefreshVisibility("tree-entered");
+    }
+
+    private void OnTreeExiting()
+    {
+        _reactionSurfaces.Stop();
+        CancelInteraction();
+    }
+
 
 
     private void OnVisibilityPollTimeout()
@@ -282,7 +236,17 @@ public partial class AndroidMobileReactionButton : Control
         bool mobileRuntime = MobileReactionVisibilityPolicy.IsMobileRuntime(mobileFeature, osName);
         bool settingEnabled = AndroidSettingsBridge.GetBool("show_mobile_emoji_button", true);
         bool networkReady = game?.ReactionContainer?.InMultiplayer == true;
-        bool reactionAvailable = game != null && MobileReactionButtonPatches.IsReactionAvailable(game);
+        bool reactionAvailable = false;
+        if (mobileRuntime && settingEnabled && game != null && IsInsideTree())
+        {
+            _reactionSurfaces.Start(GetTree());
+            reactionAvailable = networkReady || _reactionSurfaces.HasVisibleSurface(
+                game.RootSceneContainer?.CurrentScene, NOverlayStack.Instance);
+        }
+        else
+        {
+            _reactionSurfaces.Stop();
+        }
         bool shouldDisplay = MobileReactionVisibilityPolicy.ShouldDisplay(
             mobileFeature,
             osName,

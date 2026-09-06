@@ -114,6 +114,13 @@ Current implementation (`STS2AndroidPortCompat`):
   network, scene, geometry, press, wheel requested/actual centers, alignment
   error, dispatch viewport/control positions, stale payload wedge delta, reset
   correction, release/react, and failures while single-player stays hidden.
+  The 250ms visibility timer queries a small `MobileReactionSurfaceTracker` index,
+  not the scene tree. The index seeds once and follows `SceneTree.NodeAdded` /
+  `NodeRemoved`; hidden ancestors and current scene/overlay ownership remain part
+  of visibility checks. Disabling the setting or leaving the tree disconnects and
+  clears the index; reentry seeds it again. Do not restore recursive `GetChildren()`
+  polling: it allocates native-array/name wrappers even in single-player with the
+  button hidden. Regression coverage lives in `tests/MobileReactionButton.Tests`.
 - `AndroidInputCompatPatches` bridges Android back-button, two-finger inspect
   right-click, and trigger-axis controller compatibility into original input.
 - `ExtendedMultiplayerRoomPatches` keeps the original multiplayer synchronizers
@@ -132,6 +139,24 @@ Current implementation (`STS2AndroidPortCompat`):
   `PeerVersionInfo.LocalDefault()` into the original host/client services and
   lets the original transport-level `HandshakeManager` own version, ModelDb
   hash, and MOD compatibility validation.
+- Layout scale subscriptions are owned by scene-node lifetime: detach on
+  `TreeExiting`, restore on reentry, and ignore repeated Ready registration.
+  Old rooms and event layouts no longer need a later scale change to be collectible.
+- Disabling preload gates only `PreloadManager.LoadAssets`; the outer asset-set
+  operation still performs cache and missed-set eviction. The resource disposal
+  guard and protected warm-cache scope remain unchanged; no forced GC is added.
+- Learned warm assets use one atomic schema-2 snapshot capped at 512 paths and
+  scoped to the launch profile, payload/compat assemblies, and ordered loaded-MOD
+  identities/file metadata. Unscoped legacy lists or mismatched contexts are relearned.
+- Optional combat animation warmup samples a separate native `SpineSprite` clone
+  without scripts, signal connections, groups, or child autoplay nodes. It never
+  triggers or rewinds the live creature animator; trigger-driven VFX/audio are no
+  longer covered by animation warmup. Unsupported Spine APIs skip the preview.
+- Known Waterfall Giant/Orobas backgrounds only bound excessive preprocessing of
+  standard continuous ambient particles to one lifetime plus the original phase.
+  Burst, one-shot, trail, sub-emitter, custom-material and long-lived effects remain
+  unchanged. This mitigation is not evidence that reported crashes were OOM.
+  Synthetic lifetime/cache/particle regressions: `tools/test-resource-safety.sh`.
 
 Build locally from the parent repository after configuring `.env`:
 

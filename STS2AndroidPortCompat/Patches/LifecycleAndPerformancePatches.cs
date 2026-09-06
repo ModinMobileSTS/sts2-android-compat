@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Godot;
@@ -10,6 +12,7 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Modding;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using STS2Mobile.Android;
@@ -77,7 +80,8 @@ public static class LifecycleAndPerformancePatches
         PatchHelper.Log("Android startup Harmony overrides disabled; safe deferred preload will run after scene startup.");
         PatchHelper.Patch(harmony, typeof(NMainMenu), "_Ready", postfix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(MainMenuReadyPostfix)));
         PatchHelper.Patch(harmony, typeof(PreloadManager), "LoadCommonAndMainMenuAssets", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadCommonAndMainMenuAssetsPrefix)));
-        PatchHelper.Patch(harmony, typeof(PreloadManager), "LoadAssetSets", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadAssetSetsPrefix)));
+        // Gate only the load operation, after the original LoadAssetSets eviction.
+        PatchHelper.Patch(harmony, typeof(PreloadManager), "LoadAssets", prefix: PatchHelper.Method(typeof(LifecycleAndPerformancePatches), nameof(LoadAssetsPrefix)));
         var cacheLoadAsset = AccessTools.Method(typeof(AssetCache), "LoadAsset", new[] { typeof(string) });
         if (cacheLoadAsset != null)
         {
@@ -238,7 +242,7 @@ public static class LifecycleAndPerformancePatches
 
     public static bool LoadCommonAndMainMenuAssetsPrefix(ref Task __result)
     {
-        if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase) || ShouldUseOriginalCommonMainMenuPreload())
+        if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase) || !ShouldRunAnyStartupPreload() || ShouldUseOriginalCommonMainMenuPreload())
         {
             if (IsPreloadDebugEnabled())
                 PatchHelper.Log($"[PreloadDiag] LoadCommonAndMainMenuAssets using original flow; settings={GetPreloadSettingsSummary()}");
@@ -248,14 +252,14 @@ public static class LifecycleAndPerformancePatches
         return false;
     }
 
-    public static bool LoadAssetSetsPrefix(ref Task<AssetLoadingSession> __result, string name)
+    public static bool LoadAssetsPrefix(ref AssetLoadingSession __result, string name)
     {
         bool allow = ShouldAllowAssetSetPreload(name);
         if (IsPreloadDebugEnabled())
-            PatchHelper.Log($"[PreloadDiag] LoadAssetSets name={name ?? "<null>"} allow={allow} phase={_preloadPhase} settings={GetPreloadSettingsSummary()}");
+            PatchHelper.Log($"[PreloadDiag] LoadAssets name={name ?? "<null>"} allow={allow} phase={_preloadPhase} settings={GetPreloadSettingsSummary()}");
         if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase) || allow)
             return true;
-        __result = Task.FromResult(AssetLoadingSession.Empty());
+        __result = AssetLoadingSession.Empty();
         PatchHelper.Log($"Android preload skipped by preload settings: {name}");
         return false;
     }
@@ -788,6 +792,9 @@ public static class LifecycleAndPerformancePatches
         }
     }
 
+    private static string _learnedWarmAssetContext;
+
+    // Called under PostPreloadMissLock; the loaded MOD order is stable by this phase.
     private static void LoadLearnedWarmAssets()
     {
         if (_learnedWarmAssetsLoaded)
@@ -795,21 +802,10 @@ public static class LifecycleAndPerformancePatches
         _learnedWarmAssetsLoaded = true;
         try
         {
-            string path = GetLearnedWarmAssetsPath();
-            if (!File.Exists(path))
-                return;
-            using var document = JsonDocument.Parse(File.ReadAllText(path));
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                return;
-            foreach (JsonElement element in document.RootElement.EnumerateArray())
-            {
-                if (element.ValueKind != JsonValueKind.String)
-                    continue;
-                string assetPath = element.GetString();
-                if (IsLoadableWarmPath(assetPath))
-                    LearnedWarmAssetPaths.Add(assetPath);
-            }
-            PatchHelper.Log($"Loaded {LearnedWarmAssetPaths.Count:N0} learned warm asset path(s).");
+            _learnedWarmAssetContext = GetLearnedWarmAssetContext();
+            LearnedWarmAssetPaths.UnionWith(LearnedWarmAssetStore.Read(
+                GetLearnedWarmAssetsPath(), _learnedWarmAssetContext, MaxLearnedWarmAssetPaths, IsLoadableWarmPath));
+            PatchHelper.Log($"Loaded {LearnedWarmAssetPaths.Count:N0} learned warm asset path(s) for current payload/profile/MOD context.");
         }
         catch (Exception exception)
         {
@@ -819,8 +815,11 @@ public static class LifecycleAndPerformancePatches
 
     private static IEnumerable<string> GetLearnedWarmAssetPaths()
     {
-        LoadLearnedWarmAssets();
-        return LearnedWarmAssetPaths;
+        lock (PostPreloadMissLock)
+        {
+            LoadLearnedWarmAssets();
+            return LearnedWarmAssetPaths.ToArray();
+        }
     }
 
     private static void RecordLearnedWarmAsset(string path)
@@ -829,9 +828,11 @@ public static class LifecycleAndPerformancePatches
             return;
         try
         {
-            LoadLearnedWarmAssets();
             lock (PostPreloadMissLock)
             {
+                LoadLearnedWarmAssets();
+                if (_learnedWarmAssetContext == null)
+                    return;
                 if (!LearnedWarmAssetPaths.Add(path))
                     return;
                 if (LearnedWarmAssetPaths.Count > MaxLearnedWarmAssetPaths)
@@ -897,10 +898,7 @@ public static class LifecycleAndPerformancePatches
         try
         {
             string path = GetLearnedWarmAssetsPath();
-            string directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(directory))
-                Directory.CreateDirectory(directory);
-            File.WriteAllText(path, JsonSerializer.Serialize(paths, new JsonSerializerOptions { WriteIndented = true }));
+            LearnedWarmAssetStore.Write(path, _learnedWarmAssetContext, paths);
             if (IsPreloadDebugEnabled())
                 PatchHelper.Log($"Saved {paths.Length:N0} learned warm asset path(s).");
         }
@@ -913,6 +911,37 @@ public static class LifecycleAndPerformancePatches
     private static string GetLearnedWarmAssetsPath()
     {
         return Path.Combine(AppPaths.DataDir, "launcher", "preload-learned-assets.json");
+    }
+
+    private static string GetLearnedWarmAssetContext()
+    {
+        string profile = "";
+        string launchContext = Path.Combine(AppPaths.DataDir, "launcher", "selected_instance.json");
+        if (File.Exists(launchContext))
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(launchContext));
+            if (document.RootElement.TryGetProperty("selected_instance_id", out var id))
+                profile = id.GetString();
+        }
+        var identity = new List<string>
+        {
+            profile, AppPaths.GameDir, AppPaths.ModsDir,
+            typeof(PreloadManager).Assembly.ManifestModule.ModuleVersionId.ToString(),
+            typeof(LifecycleAndPerformancePatches).Assembly.ManifestModule.ModuleVersionId.ToString(),
+        };
+        // Keep actual load order: two PCKs may override the same resource path.
+        foreach (var mod in ModManager.GetLoadedMods())
+        {
+            identity.Add(mod.manifest?.id);
+            identity.Add(mod.manifest?.version);
+            identity.Add(mod.path);
+            foreach (string extension in new[] { ".dll", ".pck", ".json" })
+            {
+                var file = new FileInfo(Path.Combine(mod.path, (mod.manifest?.id ?? "") + extension));
+                identity.Add(file.Exists ? $"{file.Length}:{file.LastWriteTimeUtc.Ticks}" : "missing");
+            }
+        }
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(identity))));
     }
 
     private static void AddAssetSet(HashSet<string> target, string label, Func<IEnumerable<string>> provider)

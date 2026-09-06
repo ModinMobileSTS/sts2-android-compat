@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -7,7 +6,6 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
-using MegaCrit.Sts2.Core.Animation;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Bindings.MegaSpine;
 using MegaCrit.Sts2.Core.Entities.Creatures;
@@ -27,17 +25,9 @@ public static class CombatAnimationWarmupPatches
     private const string ModeOff = "off";
     private const string ModeSafe = "safe";
     private const string ModeAll = "all";
-    private const int MaxTriggersPerCreature = 64;
     private const int MaxClipsPerCreature = 128;
 
     private static readonly ConditionalWeakTable<NCombatRoom, WarmupState> RoomStates = new();
-    private static readonly FieldInfo SpineAnimatorField = AccessTools.Field(typeof(NCreature), "_spineAnimator");
-    private static readonly FieldInfo AnimatorAnyStateField = AccessTools.Field(typeof(CreatureAnimator), "_anyState");
-    private static readonly FieldInfo AnimatorCurrentStateField = AccessTools.Field(typeof(CreatureAnimator), "_currentState");
-    private static readonly FieldInfo AnimStateBranchesField =
-        AccessTools.Field(typeof(AnimState), "_triggerBranchedStates")
-        ?? AccessTools.Field(typeof(AnimState), "_branchedStates");
-    private static readonly FieldInfo AnimStateNextStatesField = AccessTools.Field(typeof(AnimState), "_nextStates");
 
     public static void Apply(Harmony harmony)
     {
@@ -77,9 +67,7 @@ public static class CombatAnimationWarmupPatches
     {
         ulong started = Time.GetTicksMsec();
         int warmedCreatures = 0;
-        int warmedTriggers = 0;
         int warmedClips = 0;
-        int failedTriggers = 0;
         int failedClips = 0;
         int warmedHitEffects = 0;
         int warmedHitAudio = 0;
@@ -87,7 +75,7 @@ public static class CombatAnimationWarmupPatches
         try
         {
             await WaitForFramesAsync(2);
-            if (!IsValid(room))
+            if (!IsActiveRoom(room))
                 return;
 
             var creatures = room.CreatureNodes
@@ -100,42 +88,34 @@ public static class CombatAnimationWarmupPatches
             ColorRect warmupMask = CreateWarmupMask(room);
             if (warmupMask != null)
                 await WaitForFramesAsync(1);
+            if (warmupMask == null)
+                return;
             try
             {
                 if (mode != ModeOff)
                 {
                     foreach (NCreature creature in creatures)
                     {
-                        if (!IsValid(creature))
+                        if (!IsActiveRoom(room) || !IsWarmableCreature(creature))
                             continue;
-                        string originalAnimation = TryGetCurrentAnimationName(creature);
-                        AnimState originalState = TryGetCurrentAnimatorState(creature);
-                        Color originalModulate = creature.Modulate;
+                        Node2D preview = null;
                         try
                         {
-                            creature.Modulate = WithAlpha(originalModulate, Math.Min(originalModulate.A, 0.02f));
-                            string[] triggerNames = CollectWarmupTriggerNames(creature, mode);
                             string[] animationNames = CollectWarmupAnimationNames(creature, mode);
-                            if (triggerNames.Length == 0 && animationNames.Length == 0)
+                            if (animationNames.Length == 0)
                                 continue;
+                            preview = CreateSpinePreview(room, creature);
+                            if (preview == null)
+                                continue;
+                            await WaitForFramesAsync(2);
                             warmedCreatures++;
                             if (IsPreloadDebugEnabled())
-                                PatchHelper.Log($"Combat animation warmup creature={DescribeCreature(creature)} triggers=[{DescribeList(triggerNames)}] clips=[{DescribeList(animationNames)}].");
-                            foreach (string triggerName in triggerNames)
-                            {
-                                if (await WarmAnimationTriggerAsync(creature, triggerName, frames))
-                                    warmedTriggers++;
-                                else
-                                    failedTriggers++;
-                            }
-                            if (triggerNames.Length > 0)
-                            {
-                                RestoreAnimation(creature, originalAnimation, originalState);
-                                await WaitForFramesAsync(1);
-                            }
+                                PatchHelper.Log($"Combat animation warmup creature={DescribeCreature(creature)} isolated_clips=[{DescribeList(animationNames)}].");
                             foreach (string animationName in animationNames)
                             {
-                                if (await WarmAnimationClipAsync(creature, animationName, frames))
+                                if (!IsActiveRoom(room) || !IsValid(preview) || !preview.IsInsideTree())
+                                    break;
+                                if (await WarmAnimationClipAsync(room, preview, animationName, frames))
                                     warmedClips++;
                                 else
                                     failedClips++;
@@ -148,14 +128,13 @@ public static class CombatAnimationWarmupPatches
                         }
                         finally
                         {
-                            RestoreAnimation(creature, originalAnimation, originalState);
-                            creature.Modulate = originalModulate;
+                            FreeWarmupNode(preview);
                             await WaitForFramesAsync(1);
                         }
                     }
                 }
 
-                if (hitEffectWarmup)
+                if (hitEffectWarmup && IsActiveRoom(room))
                 {
                     (warmedHitEffects, failedHitEffects, warmedHitAudio) = await WarmCombatHitEffectsAsync(room, creatures, Math.Max(frames, 6));
                 }
@@ -167,7 +146,7 @@ public static class CombatAnimationWarmupPatches
                     await WaitForFramesAsync(1);
             }
 
-            PatchHelper.Log($"Combat animation warmup complete: mode={mode} creatures={warmedCreatures:N0}/{creatures.Length:N0} triggers={warmedTriggers:N0} trigger_failed={failedTriggers:N0} clips={warmedClips:N0} clip_failed={failedClips:N0} hit_effects={warmedHitEffects:N0} hit_audio={warmedHitAudio:N0} hit_effect_failed={failedHitEffects:N0} elapsed={Time.GetTicksMsec() - started:N0}ms.");
+            PatchHelper.Log($"Combat animation warmup complete: mode={mode} isolated=true creatures={warmedCreatures:N0}/{creatures.Length:N0} clips={warmedClips:N0} clip_failed={failedClips:N0} hit_effects={warmedHitEffects:N0} hit_audio={warmedHitAudio:N0} hit_effect_failed={failedHitEffects:N0} elapsed={Time.GetTicksMsec() - started:N0}ms.");
         }
         catch (Exception exception)
         {
@@ -201,7 +180,7 @@ public static class CombatAnimationWarmupPatches
             {
                 try
                 {
-                    if (!IsValid(target))
+                    if (!IsActiveRoom(room) || !IsValid(target) || !target.IsInsideTree())
                         continue;
                     Vector2 position = target.VfxSpawnPosition;
                     int visualBefore = nodesToFree.Count;
@@ -429,97 +408,65 @@ public static class CombatAnimationWarmupPatches
         }
     }
 
-    private static async Task<bool> WarmAnimationTriggerAsync(NCreature creature, string triggerName, int frames)
+    private static Node2D CreateSpinePreview(NCombatRoom room, NCreature creature)
     {
-        if (!IsValid(creature) || string.IsNullOrWhiteSpace(triggerName))
-            return false;
+        if (creature.Visuals?.SpineBody?.BoundObject is not Node2D source
+            || !IsValid(source) || !source.IsClass("SpineSprite"))
+            return null;
+        // No scripts, signal connections, groups, or scene re-instantiation.
+        // Only the native visual is copied; never clone NCreature or its animator.
+        var preview = source.Duplicate(0) as Node2D;
+        if (preview == null)
+            return null;
         try
         {
-            creature.SetAnimationTrigger(triggerName);
-            MegaTrackEntry track = creature.SpineAnimation.GetCurrentTrack();
-            try
-            {
-                track?.SetMixDuration(0f);
-            }
-            catch
-            {
-            }
-
-            float duration = 0f;
-            try
-            {
-                duration = Math.Max(0f, track?.GetAnimationEnd() ?? 0f);
-            }
-            catch
-            {
-                duration = 0f;
-            }
-
-            int samples = Math.Max(1, frames);
-            for (int i = 0; i < samples; i++)
-            {
-                if (track != null && duration > 0.001f)
-                {
-                    float ratio = samples == 1 ? 0.05f : (float)i / Math.Max(1, samples - 1);
-                    float trackTime = Math.Min(duration - 0.001f, Math.Max(0f, duration * ratio));
-                    track.SetTrackTime(trackTime);
-                }
-                ApplyCurrentSpineState(creature);
-                await WaitForFramesAsync(1);
-            }
-            return true;
+            // Child emitters/audio players can autoplay even without scripts.
+            // The native SpineSprite alone owns the skeleton rendering we warm.
+            while (preview.GetChildCount() > 0)
+                preview.GetChild(0).Free();
+            preview.ZIndex = 0;
+            preview.ZAsRelative = false;
+            room.AddChild(preview);
+            preview.GlobalTransform = source.GlobalTransform;
+            return preview;
         }
-        catch (Exception exception)
+        catch
         {
-            if (IsPreloadDebugEnabled())
-                PatchHelper.Log($"Combat animation warmup trigger skipped creature={DescribeCreature(creature)} trigger={triggerName}: {exception.GetType().Name}: {exception.Message}");
-            return false;
+            FreeWarmupNode(preview);
+            throw;
         }
     }
 
-    private static async Task<bool> WarmAnimationClipAsync(NCreature creature, string animationName, int frames)
+    private static async Task<bool> WarmAnimationClipAsync(NCombatRoom room, Node2D preview, string animationName, int frames)
     {
-        if (!IsValid(creature) || string.IsNullOrWhiteSpace(animationName))
+        if (!IsActiveRoom(room) || !IsValid(preview) || !preview.IsInsideTree())
             return false;
         try
         {
-            MegaTrackEntry track;
-#if STS2_TARGET_1080 || STS2_TARGET_1090 || STS2_TARGET_1100 || STS2_TARGET_1110
-            creature.SpineAnimation.SetAnimation(animationName, IsLoopingAnimationName(animationName), 0);
-            track = creature.SpineAnimation.GetCurrentTrack();
-#else
-            track = creature.SpineAnimation.SetAnimation(animationName, IsLoopingAnimationName(animationName), 0);
-#endif
+            using var stateValue = preview.Call("get_animation_state");
+            using var skeletonValue = preview.Call("get_skeleton");
+            using GodotObject state = stateValue.AsGodotObject();
+            using GodotObject skeleton = skeletonValue.AsGodotObject();
+            if (state == null || skeleton == null)
+                return false;
+            using var trackValue = state.Call("set_animation", animationName, IsLoopingAnimationName(animationName), 0);
+            using GodotObject track = trackValue.AsGodotObject();
             if (track == null)
                 return false;
-            try
-            {
-                track.SetMixDuration(0f);
-            }
-            catch
-            {
-            }
-
-            float duration = 0f;
-            try
-            {
-                duration = Math.Max(0f, track.GetAnimationEnd());
-            }
-            catch
-            {
-                duration = 0f;
-            }
-
+            track.Call("set_mix_duration", 0f).Dispose();
+            float duration = track.Call("get_animation_end").AsSingle();
             int samples = Math.Max(1, frames);
             for (int i = 0; i < samples; i++)
             {
+                if (!IsActiveRoom(room) || !IsValid(preview) || !preview.IsInsideTree())
+                    return false;
                 if (duration > 0.001f)
                 {
                     float ratio = samples == 1 ? 0.05f : (float)i / Math.Max(1, samples - 1);
-                    float trackTime = Math.Min(duration - 0.001f, Math.Max(0f, duration * ratio));
-                    track.SetTrackTime(trackTime);
+                    track.Call("set_track_time", Math.Min(duration - 0.001f, Math.Max(0f, duration * ratio))).Dispose();
                 }
-                ApplyCurrentSpineState(creature);
+                state.Call("update", 0f).Dispose();
+                state.Call("apply", skeleton).Dispose();
                 await WaitForFramesAsync(1);
             }
             return true;
@@ -527,104 +474,8 @@ public static class CombatAnimationWarmupPatches
         catch (Exception exception)
         {
             if (IsPreloadDebugEnabled())
-                PatchHelper.Log($"Combat animation warmup clip skipped creature={DescribeCreature(creature)} animation={animationName}: {exception.GetType().Name}: {exception.Message}");
+                PatchHelper.Log($"Isolated combat animation warmup skipped clip={animationName}: {exception.GetType().Name}: {exception.Message}");
             return false;
-        }
-    }
-
-    private static void ApplyCurrentSpineState(NCreature creature)
-    {
-        try
-        {
-            MegaAnimationState state = creature.SpineAnimation.GetAnimationState();
-            MegaSkeleton skeleton = creature.Visuals?.SpineBody?.GetSkeleton();
-            if (state != null && skeleton != null)
-            {
-                state.Update(0f);
-                state.Apply(skeleton);
-            }
-        }
-        catch
-        {
-        }
-    }
-
-    private static string[] CollectWarmupTriggerNames(NCreature creature, string mode)
-    {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        CreatureAnimator animator = TryGetSpineAnimator(creature);
-        if (animator == null)
-            return Array.Empty<string>();
-
-        CollectTriggerNamesFromState(AnimatorAnyStateField?.GetValue(animator) as AnimState, names, new HashSet<AnimState>());
-        CollectTriggerNamesFromState(AnimatorCurrentStateField?.GetValue(animator) as AnimState, names, new HashSet<AnimState>());
-        return names
-            .Where(name => IsWarmableTriggerName(creature, name, mode))
-            .OrderBy(GetTriggerWarmupPriority)
-            .ThenBy(name => name, StringComparer.Ordinal)
-            .Take(MaxTriggersPerCreature)
-            .ToArray();
-    }
-
-    private static void CollectTriggerNamesFromState(AnimState state, ISet<string> names, ISet<AnimState> visited)
-    {
-        if (state == null || !visited.Add(state))
-            return;
-
-        if (AnimStateBranchesField?.GetValue(state) is IDictionary branches)
-        {
-            foreach (object key in branches.Keys)
-            {
-                if (key is string name && !string.IsNullOrWhiteSpace(name))
-                    names.Add(name);
-            }
-
-            foreach (object value in branches.Values)
-            {
-                if (value is IEnumerable branchList)
-                    CollectChildStates(branchList, names, visited);
-            }
-        }
-
-        if (AnimStateNextStatesField?.GetValue(state) is IEnumerable nextStates)
-            CollectChildStates(nextStates, names, visited);
-
-        CollectTriggerNamesFromState(state.NextState, names, visited);
-    }
-
-    private static void CollectChildStates(IEnumerable branches, ISet<string> names, ISet<AnimState> visited)
-    {
-        foreach (object branch in branches)
-        {
-            AnimState child = TryGetBranchState(branch);
-            if (child != null)
-                CollectTriggerNamesFromState(child, names, visited);
-        }
-    }
-
-    private static AnimState TryGetBranchState(object branch)
-    {
-        try
-        {
-            return branch?.GetType()
-                .GetField("state", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                ?.GetValue(branch) as AnimState;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static CreatureAnimator TryGetSpineAnimator(NCreature creature)
-    {
-        try
-        {
-            return SpineAnimatorField?.GetValue(creature) as CreatureAnimator;
-        }
-        catch
-        {
-            return null;
         }
     }
 
@@ -709,33 +560,6 @@ public static class CombatAnimationWarmupPatches
             "heavy", "uppercut", "sharpen", "vines", "thrash");
     }
 
-    private static bool IsWarmableTriggerName(NCreature creature, string name, string mode)
-    {
-        if (!IsUsableTriggerName(name) || IsDangerousAnimationName(name))
-            return false;
-        if (mode == ModeSafe)
-            return IsSafeCombatTriggerName(creature, name);
-        return true;
-    }
-
-    private static bool IsSafeCombatTriggerName(NCreature creature, string name)
-    {
-        string lower = name.ToLowerInvariant();
-        if (creature.Entity?.IsPlayer == true)
-            return ContainsAny(lower, "idle", "attack", "cast", "hit", "shiv", "relaxed");
-        return ContainsAny(lower,
-            "idle", "attack", "cast", "hit", "buff", "debuff", "heal", "rally",
-            "bite", "slash", "stab", "smash", "swipe", "throw", "poke", "spit", "vomit",
-            "hug", "chomp", "flail", "ram", "breaker", "bomb", "laser", "grenade",
-            "heavy", "uppercut", "sharpen", "vines", "thrash", "charge");
-    }
-
-    private static bool IsUsableTriggerName(string name)
-    {
-        return !string.IsNullOrWhiteSpace(name)
-            && !string.Equals(name, "Dead", StringComparison.Ordinal)
-            && !string.Equals(name, "Revive", StringComparison.Ordinal);
-    }
 
     private static bool IsUsableAnimationName(string name)
     {
@@ -756,23 +580,6 @@ public static class CombatAnimationWarmupPatches
         return ContainsAny(lower, "die", "dead", "death", "flee", "escape", "spawn", "summon", "revive", "hatch", "burrow", "sleep", "wake", "intro");
     }
 
-    private static int GetTriggerWarmupPriority(string name)
-    {
-        string lower = name.ToLowerInvariant();
-        if (lower.Contains("idle"))
-            return 0;
-        if (lower.Contains("attack"))
-            return 1;
-        if (lower.Contains("shiv"))
-            return 2;
-        if (lower.Contains("cast"))
-            return 3;
-        if (lower.Contains("hit"))
-            return 4;
-        if (lower.Contains("relaxed"))
-            return 5;
-        return 50;
-    }
 
     private static int GetAnimationWarmupPriority(string name)
     {
@@ -792,68 +599,6 @@ public static class CombatAnimationWarmupPatches
         return 50;
     }
 
-    private static void RestoreAnimation(NCreature creature, string originalAnimation, AnimState originalState)
-    {
-        try
-        {
-            if (!IsValid(creature))
-                return;
-            string animationToRestore = !string.IsNullOrWhiteSpace(originalAnimation) ? originalAnimation : originalState?.Id;
-            if (!string.IsNullOrWhiteSpace(animationToRestore))
-                creature.SpineAnimation.SetAnimation(animationToRestore, IsLoopingAnimationName(animationToRestore), 0);
-            else
-                creature.SetAnimationTrigger("Idle");
-            RestoreCurrentAnimatorState(creature, originalState);
-            ApplyCurrentSpineState(creature);
-        }
-        catch (Exception exception)
-        {
-            if (IsPreloadDebugEnabled())
-                PatchHelper.Log($"Combat animation restore skipped creature={DescribeCreature(creature)}: {exception.Message}");
-        }
-    }
-
-    private static AnimState TryGetCurrentAnimatorState(NCreature creature)
-    {
-        try
-        {
-            CreatureAnimator animator = TryGetSpineAnimator(creature);
-            return AnimatorCurrentStateField?.GetValue(animator) as AnimState;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static void RestoreCurrentAnimatorState(NCreature creature, AnimState originalState)
-    {
-        if (originalState == null)
-            return;
-        try
-        {
-            CreatureAnimator animator = TryGetSpineAnimator(creature);
-            if (animator != null)
-                AnimatorCurrentStateField?.SetValue(animator, originalState);
-        }
-        catch
-        {
-        }
-    }
-
-    private static string TryGetCurrentAnimationName(NCreature creature)
-    {
-        try
-        {
-            MegaTrackEntry track = creature.SpineAnimation.GetCurrentTrack();
-            GodotObject animation = track?.BoundObject.Call("get_animation").AsGodotObject();
-            return animation?.Call("get_name").AsString();
-        }
-        catch
-        {
-            return null;
-        }
-    }
 
     private static bool IsLoopingAnimationName(string name)
     {
@@ -893,6 +638,12 @@ public static class CombatAnimationWarmupPatches
     private static bool IsValid(GodotObject value)
     {
         return value != null && GodotObject.IsInstanceValid(value);
+    }
+
+    private static bool IsActiveRoom(NCombatRoom room)
+    {
+        return IsValid(room) && room.IsInsideTree() && !room.IsQueuedForDeletion()
+            && room.Mode == CombatRoomMode.ActiveCombat;
     }
 
     private static string GetWarmupMode()

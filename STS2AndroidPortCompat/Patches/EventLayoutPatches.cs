@@ -44,19 +44,11 @@ public static class EventLayoutPatches
             var layout = (Control)__instance;
             ApplyLayout(layout);
 
-            UiScalePatches.UiScaleChanged += OnScaleChanged;
-
-            void OnScaleChanged()
+            UiScalePatches.ObserveScale(layout, () =>
             {
-                if (!GodotObject.IsInstanceValid(layout) || !layout.IsInsideTree())
-                {
-                    UiScalePatches.UiScaleChanged -= OnScaleChanged;
-                    return;
-                }
-
                 ApplyLayout(layout);
                 ApplyButtonSizes(layout);
-            }
+            });
         }
         catch (Exception ex)
         {

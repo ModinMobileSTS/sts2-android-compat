@@ -37,18 +37,7 @@ public static class MobileLayoutPatches
             var menu = (Node)__instance;
             ApplyMainMenuLayout(menu);
 
-            UiScalePatches.UiScaleChanged += OnScaleChanged;
-
-            void OnScaleChanged()
-            {
-                if (!GodotObject.IsInstanceValid((GodotObject)menu) || !menu.IsInsideTree())
-                {
-                    UiScalePatches.UiScaleChanged -= OnScaleChanged;
-                    return;
-                }
-
-                ApplyMainMenuLayout(menu);
-            }
+            UiScalePatches.ObserveScale(menu, () => ApplyMainMenuLayout(menu));
         }
         catch (Exception ex)
         {

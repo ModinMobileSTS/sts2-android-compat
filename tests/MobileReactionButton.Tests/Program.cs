@@ -142,24 +142,7 @@ for (var index = 0; index < capturedWedgePositions.Length; index++)
         neutralWedgePositions[index].Y);
 }
 
-var positionsAfterFullTurn = (Vector2[])neutralWedgePositions.Clone();
-for (var index = 0; index < positionsAfterFullTurn.Length; index++)
-{
-    var angle = index * MathF.PI / 4f;
-    var selectedOffset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * 25f;
-    positionsAfterFullTurn[index] = neutralWedgePositions[index] + selectedOffset;
-    positionsAfterFullTurn[index] = neutralWedgePositions[index];
-}
-for (var index = 0; index < positionsAfterFullTurn.Length; index++)
-{
-    AssertNear(
-        $"full-turn wedge {index} returns to neutral X",
-        neutralWedgePositions[index].X,
-        positionsAfterFullTurn[index].X);
-    AssertNear(
-        $"full-turn wedge {index} returns to neutral Y",
-        neutralWedgePositions[index].Y,
-        positionsAfterFullTurn[index].Y);
-}
 
-Console.WriteLine("Mobile reaction button policy, pointer-state, viewport-placement, local-echo, and wedge-baseline tests passed.");
+SurfaceTrackerTests.Run();
+
+Console.WriteLine("Mobile reaction policy, pointer, placement, and surface lifecycle regressions passed.");

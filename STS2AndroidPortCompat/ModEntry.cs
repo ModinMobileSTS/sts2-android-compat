@@ -102,6 +102,8 @@ public static class ModEntry
             AndroidAssetCacheLifecyclePatches.Apply(_harmony);
         });
 
+        ApplyPatchGroup("Android ambient particle safety", () => AndroidParticlePreprocessPatches.Apply(_harmony));
+
         ApplyPatchGroup("Mobile layout/input patches", () =>
         {
             MobileLayoutPatches.Apply(_harmony);

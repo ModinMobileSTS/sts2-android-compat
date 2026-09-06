@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Godot;
 using HarmonyLib;
 
@@ -12,8 +13,54 @@ namespace STS2Mobile.Patches;
 public static class UiScalePatches
 {
     public static int UiScalePercent { get; private set; } = 100;
-    public static event Action UiScaleChanged;
+    private static event Action UiScaleChanged;
+    private static readonly ConditionalWeakTable<Node, ScaleSubscription> ScaleSubscriptions = new();
     private static bool _uiScaleLoaded = false;
+
+    internal static void ObserveScale(Node owner, Action apply)
+    {
+        if (!ScaleSubscriptions.TryGetValue(owner, out var subscription))
+        {
+            subscription = new ScaleSubscription(owner);
+            ScaleSubscriptions.Add(owner, subscription);
+        }
+        subscription.Update(owner, apply);
+    }
+
+    private sealed class ScaleSubscription
+    {
+        private Action _apply;
+        private bool _subscribed;
+
+        internal ScaleSubscription(Node owner)
+        {
+            owner.TreeEntered += Subscribe;
+            owner.TreeExiting += Unsubscribe;
+        }
+
+        internal void Update(Node owner, Action apply)
+        {
+            _apply = apply;
+            if (owner.IsInsideTree())
+                Subscribe();
+        }
+
+        private void Subscribe()
+        {
+            if (_subscribed)
+                return;
+            UiScaleChanged += Apply;
+            _subscribed = true;
+        }
+
+        private void Unsubscribe()
+        {
+            UiScaleChanged -= Apply;
+            _subscribed = false;
+        }
+
+        private void Apply() => _apply();
+    }
 
     public static void Apply(Harmony harmony)
     {

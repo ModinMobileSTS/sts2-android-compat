@@ -68,19 +68,11 @@ public static class CombatBackgroundPatches
             DeferAdjust(room, adjustMethod);
 
             // Re-apply when UI scale changes mid-combat.
-            UiScalePatches.UiScaleChanged += OnScaleChanged;
-
-            void OnScaleChanged()
+            UiScalePatches.ObserveScale(room, () =>
             {
-                if (!GodotObject.IsInstanceValid(room) || !room.IsInsideTree())
-                {
-                    UiScalePatches.UiScaleChanged -= OnScaleChanged;
-                    return;
-                }
-
                 ApplyBgScale(room);
                 DeferAdjust(room, adjustMethod);
-            }
+            });
         }
         catch (Exception ex)
         {

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <SafetySourceRoot Condition="'$(SafetySourceRoot)' == ''">../../../STS2AndroidPortCompat/Patches</SafetySourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(SafetySourceRoot)/UiScalePatches.cs" Link="UiScalePatches.cs" />
+    <Compile Include="$(SafetySourceRoot)/CombatBackgroundPatches.cs" Link="CombatBackgroundPatches.cs" />
+    <Compile Include="$(SafetySourceRoot)/EventLayoutPatches.cs" Link="EventLayoutPatches.cs" />
+    <Compile Include="$(SafetySourceRoot)/MobileLayoutPatches.cs" Link="MobileLayoutPatches.cs" />
+    <Compile Include="../../../STS2AndroidPortCompat/Patches/AndroidParticlePreprocessPatches.cs" Link="AndroidParticlePreprocessPatches.cs" />
+    <Compile Include="../../../STS2AndroidPortCompat/Patches/LearnedWarmAssetStore.cs" Link="LearnedWarmAssetStore.cs" />
+  </ItemGroup>
+</Project>

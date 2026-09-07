@@ -2,7 +2,6 @@ using System;
 using System.Reflection;
 using Godot;
 using HarmonyLib;
-using MegaCrit.Sts2.addons.mega_text;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
@@ -84,15 +83,6 @@ public static class DisplaySettingsPatches
     private const int MinimumRenderTargetDimension = 2;
     private const int MaximumDynamicRenderTargetDimension = 4096;
 
-    private static readonly StringName[] FontSizeOverrideNames =
-    {
-        "font_size",
-        "normal_font_size",
-        "bold_font_size",
-        "italics_font_size",
-        "bold_italics_font_size",
-        "mono_font_size",
-    };
 
     private static ContentScaleOwner _contentScaleOwner;
     private static ContentScaleOwner _lastContentScaleOwner;
@@ -105,7 +95,6 @@ public static class DisplaySettingsPatches
     private static Window.ContentScaleAspectEnum? _lastScaleAspect;
     private static AspectRatioSetting? _lastAspect;
     private static int _lastUiScalePercent = -1;
-    private static bool? _hasSourcePortMegaTextScaling;
     private static bool _isApplyingDisplaySettings;
     private static bool _deferredDisplayApplyQueued;
     private static DeferredDisplayApplyKind _deferredDisplayApplyKind;
@@ -736,174 +725,9 @@ public static class DisplaySettingsPatches
         return null;
     }
 
-    internal static void ApplyFontSizeOverridesRecursive(Node node)
-    {
-        if (node is Control control)
-            ApplyFontSizeOverrides(control);
-        foreach (Node child in node.GetChildren())
-            ApplyFontSizeOverridesRecursive(child);
-    }
+    internal static void ApplyFontSizeOverridesRecursive(Node node) =>
+        AndroidFontSizeScaler.ApplyRecursive(node, GetUiFontScaleMultiplier());
 
-    internal static void ApplyFontSizeOverridesToAddedNode(Node node)
-    {
-        if (node is Control control)
-            ApplyFontSizeOverrides(control);
-    }
-
-    private static void ApplyFontSizeOverrides(Control control)
-    {
-        if (ShouldSkipFontOverrideScaling(control))
-            return;
-        var scaleMultiplier = GetUiFontScaleMultiplier();
-        foreach (var fontSizeOverrideName in FontSizeOverrideNames)
-        {
-            if (!TryGetFontBaseSize(control, fontSizeOverrideName, out var baseSize))
-                continue;
-            var scaledSize = Mathf.Max(1, Mathf.RoundToInt(baseSize * scaleMultiplier));
-            control.AddThemeFontSizeOverride(fontSizeOverrideName, scaledSize);
-        }
-    }
-
-    private static bool TryGetFontBaseSize(Control control, StringName fontSizeOverrideName, out int baseSize)
-    {
-        var metaKey = $"__android_port_base_size__{fontSizeOverrideName}";
-        if (control.HasMeta(metaKey))
-        {
-            baseSize = GetFontBaseSizeFromMeta(control.GetMeta(metaKey));
-            return baseSize > 0;
-        }
-
-        if (control.HasThemeFontSizeOverride(fontSizeOverrideName))
-        {
-            baseSize = control.GetThemeFontSize(fontSizeOverrideName);
-        }
-        else if (ShouldSeedDefaultFontSize(control, fontSizeOverrideName))
-        {
-            var themeType = control.GetClass();
-            baseSize = string.IsNullOrWhiteSpace(themeType)
-                ? control.GetThemeFontSize(fontSizeOverrideName)
-                : control.GetThemeFontSize(fontSizeOverrideName, themeType);
-            if (baseSize <= 0)
-                baseSize = control.GetThemeFontSize(fontSizeOverrideName);
-        }
-        else
-        {
-            baseSize = 0;
-        }
-
-        if (baseSize <= 0)
-            return false;
-        control.SetMeta(metaKey, baseSize);
-        return true;
-    }
-
-    private static bool ShouldSeedDefaultFontSize(Control control, StringName fontSizeOverrideName)
-    {
-        if (fontSizeOverrideName == "font_size")
-            return control is Label or Button or LineEdit or TextEdit;
-        if (control is RichTextLabel)
-        {
-            return fontSizeOverrideName == "normal_font_size"
-                || fontSizeOverrideName == "bold_font_size"
-                || fontSizeOverrideName == "italics_font_size"
-                || fontSizeOverrideName == "bold_italics_font_size"
-                || fontSizeOverrideName == "mono_font_size";
-        }
-        return false;
-    }
-
-    private static bool ShouldSkipFontOverrideScaling(Control control)
-    {
-        if (control is MegaLabel { AutoSizeEnabled: true } megaLabel)
-        {
-            if (!HasSourcePortMegaTextScaling())
-                ApplyAutoSizeFontScaling(megaLabel);
-            return true;
-        }
-        if (control is MegaRichTextLabel { AutoSizeEnabled: true } megaRichTextLabel)
-        {
-            if (!HasSourcePortMegaTextScaling())
-                ApplyAutoSizeFontScaling(megaRichTextLabel);
-            return true;
-        }
-        return false;
-    }
-
-    private static void ApplyAutoSizeFontScaling(MegaLabel label)
-    {
-        if (!label.HasThemeFontOverride("font"))
-            return;
-        int baseMin = GetOrStoreIntMeta(label, "__android_port_base_min_font_size", label.MinFontSize);
-        int baseMax = GetOrStoreIntMeta(label, "__android_port_base_max_font_size", label.MaxFontSize);
-        float scale = GetUiFontScaleMultiplier();
-        label.MinFontSize = Mathf.Max(1, Mathf.RoundToInt(baseMin * scale));
-        label.MaxFontSize = Mathf.Max(label.MinFontSize, Mathf.RoundToInt(baseMax * scale));
-        InvokeAdjustFontSize(label);
-    }
-
-    private static void ApplyAutoSizeFontScaling(MegaRichTextLabel label)
-    {
-        if (!label.HasThemeFontOverride("normal_font"))
-            return;
-        int baseMin = GetOrStoreIntMeta(label, "__android_port_base_min_font_size", label.MinFontSize);
-        int baseMax = GetOrStoreIntMeta(label, "__android_port_base_max_font_size", label.MaxFontSize);
-        float scale = GetUiFontScaleMultiplier();
-        label.MinFontSize = Mathf.Max(1, Mathf.RoundToInt(baseMin * scale));
-        label.MaxFontSize = Mathf.Max(label.MinFontSize, Mathf.RoundToInt(baseMax * scale));
-        SetPrivateField(label, "_needsResize", true);
-        InvokeAdjustFontSize(label);
-    }
-
-    private static bool HasSourcePortMegaTextScaling()
-    {
-        if (!_hasSourcePortMegaTextScaling.HasValue)
-        {
-            const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
-            _hasSourcePortMegaTextScaling = typeof(MegaLabel).GetField("_lastAppliedScaledFontSize", flags) != null
-                || typeof(MegaRichTextLabel).GetField("_sourceText", flags) != null;
-        }
-        return _hasSourcePortMegaTextScaling.Value;
-    }
-
-    private static int GetOrStoreIntMeta(GodotObject obj, string metaKey, int currentValue)
-    {
-        if (obj.HasMeta(metaKey))
-            return GetFontBaseSizeFromMeta(obj.GetMeta(metaKey));
-        obj.SetMeta(metaKey, currentValue);
-        return currentValue;
-    }
-
-    private static void SetPrivateField(object target, string fieldName, object value)
-    {
-        try
-        {
-            target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(target, value);
-        }
-        catch
-        {
-        }
-    }
-
-    private static void InvokeAdjustFontSize(object target)
-    {
-        try
-        {
-            target.GetType().GetMethod("AdjustFontSize", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(target, null);
-        }
-        catch (Exception exception)
-        {
-            PatchHelper.Log($"Auto-size font scaling failed on {target.GetType().Name}: {exception.Message}");
-        }
-    }
-
-    private static int GetFontBaseSizeFromMeta(Variant metaValue)
-    {
-        return metaValue.VariantType switch
-        {
-            Variant.Type.Int => metaValue.AsInt32(),
-            Variant.Type.Float => Mathf.RoundToInt((float)metaValue.AsDouble()),
-            Variant.Type.String => int.TryParse(metaValue.AsString(), out var parsed) ? parsed : 0,
-            _ => metaValue.Obj is IConvertible convertible ? Convert.ToInt32(convertible) : 0,
-        };
-    }
+    internal static void ApplyFontSizeOverridesToAddedNode(Node node) =>
+        AndroidFontSizeScaler.Apply(node, GetUiFontScaleMultiplier());
 }

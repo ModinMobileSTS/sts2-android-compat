@@ -56,24 +56,39 @@ internal static class AndroidResourcePreloader
         private ulong _frame;
         private ulong _started;
         private int _items;
+        private readonly int _maximumItems;
 
-        public FrameBudget()
+        public FrameBudget() : this(8) { }
+
+        internal FrameBudget(int maximumItems)
         {
             _frame = Engine.GetProcessFrames();
             _started = Time.GetTicksUsec();
             _items = 0;
+            _maximumItems = maximumItems;
         }
 
         internal bool ShouldYield()
         {
-            ulong frame = Engine.GetProcessFrames();
-            if (frame != _frame)
-            {
-                _frame = frame;
-                _started = Time.GetTicksUsec();
-                _items = 0;
-            }
-            return ++_items >= 8 || Time.GetTicksUsec() - _started >= 2000;
+            ResetForFrame(Engine.GetProcessFrames());
+            return ++_items >= _maximumItems || Time.GetTicksUsec() - _started >= 2000;
+        }
+
+        internal bool TryBeginItem(ulong frame)
+        {
+            ResetForFrame(frame);
+            if (_items >= _maximumItems || Time.GetTicksUsec() - _started >= 2000)
+                return false;
+            _items++;
+            return true;
+        }
+
+        private void ResetForFrame(ulong frame)
+        {
+            if (frame == _frame) return;
+            _frame = frame;
+            _started = Time.GetTicksUsec();
+            _items = 0;
         }
     }
 }

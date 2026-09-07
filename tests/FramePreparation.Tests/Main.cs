@@ -22,17 +22,23 @@ public partial class Main : Node
     {
         try
         {
+            CheckOriginalContracts();
             var harmony = new Harmony("sts2.frame-preparation.native-tests");
             // Exercise mobile gating without replacing any rendering/resource API.
             harmony.Patch(AccessTools.Method(typeof(OS), nameof(OS.GetName)), prefix: new HarmonyMethod(typeof(Main), nameof(MobilePlatform)));
             harmony.Patch(AccessTools.Method(typeof(ResourceLoader), nameof(ResourceLoader.LoadThreadedRequest)), postfix: new HarmonyMethod(typeof(Main), nameof(Requested)));
             harmony.Patch(AccessTools.Method(typeof(ResourceLoader), nameof(ResourceLoader.LoadThreadedGet)), prefix: new HarmonyMethod(typeof(Main), nameof(Retrieving)));
             ShaderCompatibilityPatches.Apply(harmony);
+            CombatVfxPoolPatches.Apply(harmony);
+            RuntimeAssetLoadingPatches.Apply(harmony);
             var game = new NGame();
             AddChild(game);
             await Frame();
             await CheckShaderLifecycle(game);
             await CheckBackgroundPreparation();
+            await CheckVfxReuse();
+            await CheckRuntimeBudgets();
+            await CheckFontScaling();
             GD.Print("PASS: native Godot resource readiness/serialization/failure recovery and shader parent-Ready/reparent/removal/isolation/exclusion.");
             GetTree().Quit();
         }

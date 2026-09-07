@@ -190,13 +190,36 @@ AddChild hooks. Disabling removes the subscription and pending references;
 re-enabling seeds existing nodes. Per-node material isolation and the card-mask
 shader exclusion remain intact. Existing replacements require restart to undo.
 
-`tests/FramePreparation.Tests` runs the production preparation/shader code with
-the official Godot 4.5.1 .NET engine and packaged Harmony, using only synthetic
-fixtures. It covers resource readiness, serialized requests, failure recovery,
-and shader lifecycle/settings boundaries. Build with `HarmonyReferenceDir`, then
+Runtime resource sessions additionally use `RuntimeAssetLoadingPatches`: guards
+before dequeue share a cooperative 2ms frame budget with at most eight items per
+phase. Repeated processing in the same frame cannot renew the quota. The game
+still owns completion, errors, its existing in-flight limit and serial VFX loads.
+Deferred queues remain intact; loading may take longer, but never falsely finish.
+
+`CombatVfxPoolPatches` reuses completed stock damage numbers, hit sparks and shivs
+within one combat room, retaining at most 16/8/8 idle instances. Overflow still
+creates complete effects. Original factories, Ready and playback timing execute;
+immutable async leases prevent an old continuation from releasing a later rental.
+External removal keeps original destruction, and room exit frees idle instances.
+Node state is restored, and each shiv owns reusable, isolated tint materials.
+Unknown child scripts and foreign Harmony factory/lifecycle patches opt out.
+
+`AndroidFontSizeScaler` caches fixed metadata keys, leaves untouched 100% fonts
+inherited, and avoids equal-value setters/auto-size adjustments. Scaling and
+restoration use original base sizes without compounding on reentry; locale font
+fallback remains unchanged.
+
+`tests/FramePreparation.Tests` runs the production preparation, shader, queue,
+effect-pool and font-scaling code with the official Godot 4.5.1 .NET engine and
+packaged Harmony. Synthetic fixtures cover readiness/failures, stale playback,
+bounded retention, cancellation, material isolation and font restoration.
+Build with `HarmonyReferenceDir`, then
 launch Godot with `--headless --path tests/FramePreparation.Tests`; on Linux set
 `DOTNET_ROOT` to the .NET SDK root and `LD_PRELOAD=libgcc_s.so.1` for MonoMod's
 native unwinder. The malformed-resource error is expected before the final PASS.
+Optionally set `STS2_FRAME_REFERENCE_DLLS` to semicolon-separated local original
+DLL paths for read-only Cecil checks of queue IL and VFX factory/playback shapes;
+the harness never executes those game assemblies or includes commercial data.
 
 Touch preview compatibility now has a first-pass patch in
 `Patches/MobileTapPreviewPatches.cs`: when companion `touch_lift_preview` is

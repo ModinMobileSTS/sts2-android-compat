@@ -136,6 +136,8 @@ public static class ModEntry
             ExtendedMultiplayerRoomPatches.Apply(_harmony);
             IntentAnimationPatches.Apply(_harmony);
             CombatAnimationWarmupPatches.Apply(_harmony);
+            CombatVfxPoolPatches.Apply(_harmony);
+            RuntimeAssetLoadingPatches.Apply(_harmony);
             QuickRestartPatches.Apply(_harmony);
             LifecycleAndPerformancePatches.Apply(_harmony);
         });

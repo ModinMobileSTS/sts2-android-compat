@@ -11,6 +11,23 @@ namespace MegaCrit.Sts2.Core.Nodes
         public override void _Ready() { }
     }
 }
+namespace MegaCrit.Sts2.Core.Nodes.Rooms
+{
+    public partial class NCombatRoom : Node
+    {
+        public static NCombatRoom Instance;
+    }
+}
+namespace MegaCrit.Sts2.Core.Helpers
+{
+    public static class GodotTreeExtensions
+    {
+        public static void QueueFreeSafely(this Node node)
+        {
+            if (GodotObject.IsInstanceValid(node)) node.QueueFree();
+        }
+    }
+}
 namespace STS2Mobile.Android
 {
     public static class AndroidSettingsBridge

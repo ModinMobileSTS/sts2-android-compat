@@ -222,6 +222,7 @@ public static class DisplaySettingsPatches
             {
                 AndroidSettingsPatches.ApplyCompanionSettingsToRuntimeSave();
                 PreloadManager.Enabled = AndroidSettingsBridge.GetBool("preload_enabled", true);
+                ShaderCompatibilityPatches.RefreshSettings();
             }
             if (applyKind == DeferredDisplayApplyKind.RuntimeSettings)
             {

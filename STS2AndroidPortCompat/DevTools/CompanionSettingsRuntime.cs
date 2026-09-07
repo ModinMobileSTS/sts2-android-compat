@@ -17,6 +17,7 @@ public static class CompanionSettingsRuntime
         try
         {
             AndroidSettingsBridge.InvalidateCache();
+            ShaderCompatibilityPatches.RefreshSettings();
             var applyDisplay = keys == null || keys.Count == 0;
             var applyTooltip = applyDisplay;
             var applyPreload = applyDisplay;

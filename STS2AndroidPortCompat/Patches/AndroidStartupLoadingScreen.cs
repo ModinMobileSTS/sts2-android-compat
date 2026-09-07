@@ -308,7 +308,7 @@ public partial class AndroidStartupLoadingScreen : Control
             Node node = null;
             try
             {
-                PackedScene packedScene = LoadWarmupScene(path, retainCache);
+                PackedScene packedScene = await LoadWarmupSceneAsync(path, retainCache);
                 if (packedScene == null)
                 {
                     skipped++;
@@ -387,18 +387,15 @@ public partial class AndroidStartupLoadingScreen : Control
         PatchHelper.Log($"Android VFX warmup complete: mode={mode} scenes={warmupScenePaths.Length:N0} loaded={loaded:N0} instantiated={instantiated:N0} resource_only={resourceOnly:N0} tree_warmed={treeWarmed:N0} tree_ineligible={treeIneligible:N0} tree_failed={treeFailed:N0} skipped={skipped:N0} failed={failed:N0} cached_before={cachedBefore:N0} cached_after={cachedAfter:N0} shader_cache_after={shaderCacheAfter} shader_cache_delta_files={shaderCacheAfter.FileCount - shaderCacheBefore.FileCount:N0} shader_cache_delta_bytes={shaderCacheAfter.TotalBytes - shaderCacheBefore.TotalBytes:N0} elapsed={Time.GetTicksMsec() - started:N0}ms.");
     }
 
-    private static PackedScene LoadWarmupScene(string path, bool retainCache)
+    private static async Task<PackedScene> LoadWarmupSceneAsync(string path, bool retainCache)
     {
-        if (retainCache)
-        {
-            if (PreloadManager.Cache.ContainsKey(path))
-                return PreloadManager.Cache.GetScene(path);
-            PackedScene scene = ResourceLoader.Load<PackedScene>(path, null, ResourceLoader.CacheMode.Reuse);
-            if (scene != null)
-                PreloadManager.Cache.SetAsset(path, scene);
-            return scene;
-        }
-        return ResourceLoader.Load<PackedScene>(path, null, ResourceLoader.CacheMode.Ignore);
+        if (retainCache && PreloadManager.Cache.ContainsKey(path))
+            return PreloadManager.Cache.GetScene(path);
+        var cacheMode = retainCache ? ResourceLoader.CacheMode.Reuse : ResourceLoader.CacheMode.Ignore;
+        var scene = await AndroidResourcePreloader.LoadAsync(path, cacheMode) as PackedScene;
+        if (retainCache && scene != null)
+            PreloadManager.Cache.SetAsset(path, scene);
+        return scene;
     }
 
     private static Node CreateWarmupRoot(AndroidStartupLoadingScreen loadingScreen, SceneTree tree)

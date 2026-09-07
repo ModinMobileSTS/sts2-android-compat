@@ -1,0 +1,18 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../STS2AndroidPortCompat/Patches/AndroidResourcePreloader.cs" Link="AndroidResourcePreloader.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/ShaderCompatibilityPatches.cs" Link="ShaderCompatibilityPatches.cs" />
+    <Reference Include="0Harmony"><HintPath>$(HarmonyReferenceDir)/0Harmony.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Core"><HintPath>$(HarmonyReferenceDir)/MonoMod.Core.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Utils"><HintPath>$(HarmonyReferenceDir)/MonoMod.Utils.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Backports"><HintPath>$(HarmonyReferenceDir)/MonoMod.Backports.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Iced"><HintPath>$(HarmonyReferenceDir)/MonoMod.Iced.dll</HintPath></Reference>
+    <Reference Include="MonoMod.ILHelpers"><HintPath>$(HarmonyReferenceDir)/MonoMod.ILHelpers.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(HarmonyReferenceDir)/Mono.Cecil.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

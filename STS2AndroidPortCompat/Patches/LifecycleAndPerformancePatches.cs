@@ -418,6 +418,7 @@ public static class LifecycleAndPerformancePatches
         int nullLoads = 0;
         int failed = 0;
         ulong started = Time.GetTicksMsec();
+        var budget = new AndroidResourcePreloader.FrameBudget();
         foreach (string path in assetPaths)
         {
             try
@@ -428,7 +429,7 @@ public static class LifecycleAndPerformancePatches
                 }
                 else
                 {
-                    Resource resource = ResourceLoader.Load<Resource>(path, null, ResourceLoader.CacheMode.Reuse);
+                    Resource resource = await AndroidResourcePreloader.LoadAsync(path, ResourceLoader.CacheMode.Reuse);
                     if (resource != null)
                     {
                         PreloadManager.Cache.SetAsset(path, resource);
@@ -447,7 +448,7 @@ public static class LifecycleAndPerformancePatches
                 PatchHelper.Log($"Android preload skipped {path}: {exception.Message}");
             }
             loaded++;
-            if ((loaded % 8) == 0)
+            if (budget.ShouldYield())
             {
                 float progress = assetPaths.Count == 0 ? 1f : 0.05f + (0.9f * loaded / assetPaths.Count);
                 loadingScreen?.SetStatus("Optimizing startup...", $"Preloading {loaded:N0}/{assetPaths.Count:N0}: {GetResourceDisplayName(path)}", progress);
@@ -514,6 +515,7 @@ public static class LifecycleAndPerformancePatches
         int nullLoads = 0;
         int failed = 0;
         ulong started = Time.GetTicksMsec();
+        var budget = new AndroidResourcePreloader.FrameBudget();
         for (int i = 0; i < assetPaths.Count; i++)
         {
             string path = assetPaths[i];
@@ -525,7 +527,7 @@ public static class LifecycleAndPerformancePatches
                 }
                 else
                 {
-                    Resource resource = ResourceLoader.Load<Resource>(path, null, ResourceLoader.CacheMode.Reuse);
+                    Resource resource = await AndroidResourcePreloader.LoadAsync(path, ResourceLoader.CacheMode.Reuse);
                     if (resource != null)
                     {
                         PreloadManager.Cache.SetAsset(path, resource);
@@ -547,7 +549,7 @@ public static class LifecycleAndPerformancePatches
             }
 
             loaded++;
-            if ((loaded % 8) == 0)
+            if (budget.ShouldYield())
             {
                 float progress = assetPaths.Count == 0 ? progressEnd : progressStart + ((progressEnd - progressStart) * loaded / assetPaths.Count);
                 loadingScreen?.SetStatus(title, $"{loaded:N0}/{assetPaths.Count:N0}: {GetResourceDisplayName(path)}", progress);

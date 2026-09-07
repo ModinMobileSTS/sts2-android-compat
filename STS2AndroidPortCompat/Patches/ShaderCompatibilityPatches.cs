@@ -28,34 +28,112 @@ public static class ShaderCompatibilityPatches
 
     private static bool _loadedOverlayPack;
     private static bool _loggedDisabled;
+    private static SceneTree _subscribedTree;
+    private static bool _enabled;
+    private static readonly List<CanvasItem> PendingMaterials = new();
+    private static readonly HashSet<ulong> PendingIds = new();
+    private static bool _materialApplyQueued;
+    private static readonly Dictionary<string, Shader> ReplacementShaders = new(StringComparer.Ordinal);
 
     public static void Apply(Harmony harmony)
     {
         Callable.From(LoadOverlayPackWhenReady).CallDeferred();
-        var nodeType = typeof(Node);
-        PatchHelper.Patch(harmony, nodeType, "AddChild", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(NodeAddChildPostfix)));
-        var addChildSafely = typeof(NGame).Assembly.GetType("MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions")?.GetMethod("AddChildSafely", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-        if (addChildSafely != null)
-            harmony.Patch(addChildSafely, postfix: new HarmonyMethod(PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(AddChildSafelyPostfix))));
+        PatchHelper.Patch(harmony, typeof(NGame), "_Ready", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(GameReadyPostfix)));
     }
 
-    public static void NodeAddChildPostfix(Node node)
+    public static void GameReadyPostfix(NGame __instance)
     {
-        if (node == null || !IsEnabled())
-            return;
         try
         {
-            ApplyRecursive(node);
+            var tree = __instance?.GetTree();
+            if (tree == null)
+                return;
+            if (!ReferenceEquals(_subscribedTree, tree))
+            {
+                if (_subscribedTree != null && GodotObject.IsInstanceValid(_subscribedTree))
+                    _subscribedTree.NodeAdded -= OnNodeAdded;
+                _subscribedTree = tree;
+                _enabled = false;
+            }
+            EnsureOverlayPackLoadedForDiagnostics();
+            RefreshSettings();
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"Shader compatibility traversal failed: {exception.Message}");
+            PatchHelper.Log($"Shader compatibility installation failed: {exception.Message}");
         }
     }
 
-    public static void AddChildSafelyPostfix(Node child)
+    internal static void RefreshSettings()
     {
-        NodeAddChildPostfix(child);
+        try
+        {
+            if (_subscribedTree == null || !GodotObject.IsInstanceValid(_subscribedTree))
+                return;
+            bool enabled = IsEnabled();
+            if (_enabled == enabled)
+                return;
+            _enabled = enabled;
+            if (enabled)
+            {
+                _subscribedTree.NodeAdded += OnNodeAdded;
+                ApplyRecursive(_subscribedTree.Root);
+            }
+            else
+            {
+                _subscribedTree.NodeAdded -= OnNodeAdded;
+                PendingMaterials.Clear();
+                PendingIds.Clear();
+            }
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Shader compatibility settings refresh failed: {exception.Message}");
+        }
+    }
+
+    private static void OnNodeAdded(Node node)
+    {
+        if (!_enabled || node is not CanvasItem canvasItem)
+            return;
+        if (!PendingIds.Add(canvasItem.GetInstanceId()))
+            return;
+        PendingMaterials.Add(canvasItem);
+        if (_materialApplyQueued)
+            return;
+        _materialApplyQueued = true;
+        // Wait until the entire AddChild/_Ready stack finishes: a parent's
+        // _Ready can still replace a child's material after the child's Ready.
+        // One idle callback handles the batch; never rescan each added subtree.
+        Callable.From(ApplyPendingMaterials).CallDeferred();
+    }
+
+    private static void ApplyPendingMaterials()
+    {
+        try
+        {
+            if (!_enabled)
+                return;
+            for (int i = 0; i < PendingMaterials.Count; i++)
+            {
+                var canvasItem = PendingMaterials[i];
+                try
+                {
+                    if (GodotObject.IsInstanceValid(canvasItem) && canvasItem.IsInsideTree())
+                        TryReplaceMaterial(canvasItem);
+                }
+                catch (Exception exception)
+                {
+                    PatchHelper.Log($"Shader compatibility replacement failed: {exception.Message}");
+                }
+            }
+        }
+        finally
+        {
+            PendingMaterials.Clear();
+            PendingIds.Clear();
+            _materialApplyQueued = false;
+        }
     }
 
     private static void LoadOverlayPackWhenReady()
@@ -110,9 +188,9 @@ public static class ShaderCompatibilityPatches
     private static void ApplyRecursive(Node node)
     {
         if (node is CanvasItem canvasItem)
-            TryReplaceMaterial(canvasItem);
-        foreach (Node child in node.GetChildren())
-            ApplyRecursive(child);
+            OnNodeAdded(canvasItem);
+        for (int i = 0; i < node.GetChildCount(); i++)
+            ApplyRecursive(node.GetChild(i));
     }
 
     private static void TryReplaceMaterial(CanvasItem canvasItem)
@@ -123,11 +201,15 @@ public static class ShaderCompatibilityPatches
         var resourcePath = shader?.ResourcePath ?? string.Empty;
         if (string.IsNullOrWhiteSpace(resourcePath) || !ShaderOverrides.TryGetValue(resourcePath, out var replacementPath))
             return;
-        var loadedShader = ResourceLoader.Load<Shader>(replacementPath, null, ResourceLoader.CacheMode.Reuse);
-        if (loadedShader == null)
+        if (!ReplacementShaders.TryGetValue(replacementPath, out var loadedShader) || !GodotObject.IsInstanceValid(loadedShader))
         {
-            PatchHelper.Log($"Shader compatibility replacement missing: {replacementPath}");
-            return;
+            loadedShader = ResourceLoader.Load<Shader>(replacementPath, null, ResourceLoader.CacheMode.Reuse);
+            if (loadedShader == null)
+            {
+                PatchHelper.Log($"Shader compatibility replacement missing: {replacementPath}");
+                return;
+            }
+            ReplacementShaders[replacementPath] = loadedShader;
         }
         var replacementMaterial = (ShaderMaterial)shaderMaterial.Duplicate(true);
         replacementMaterial.Shader = loadedShader;

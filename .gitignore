@@ -1,6 +1,7 @@
 # .NET / build output
 **/bin/
 **/obj/
+**/.godot/
 dist/
 out/
 *.zip

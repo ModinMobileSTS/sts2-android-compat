@@ -176,6 +176,28 @@ repository root). Supply `HarmonyReferenceDir` pointing to the packaged runtime
 DLLs; run both the default shape and `-p:LegacyIntent=true`. They exercise actual
 Harmony patches and behavioral transitions without commercial game code.
 
+Compat resource preparation uses `AndroidResourcePreloader` for one native
+threaded request at a time, without sub-thread fan-out. Requests and completed
+retrieval stay on the Godot thread; failed requests are consumed, and never fall
+back to a blocking load. Cache writes, instantiation and tree warmup remain on
+the main thread. Ready/cache-hit batches yield after about 2ms or eight items;
+individual native operations cannot be preempted. Existing preload scope,
+defaults and protection rules are unchanged; total warmup can take longer.
+
+Shader compatibility uses enabled-only `SceneTree.NodeAdded` notifications and
+one coalesced idle pass after parent/child Ready callbacks, instead of recursive
+AddChild hooks. Disabling removes the subscription and pending references;
+re-enabling seeds existing nodes. Per-node material isolation and the card-mask
+shader exclusion remain intact. Existing replacements require restart to undo.
+
+`tests/FramePreparation.Tests` runs the production preparation/shader code with
+the official Godot 4.5.1 .NET engine and packaged Harmony, using only synthetic
+fixtures. It covers resource readiness, serialized requests, failure recovery,
+and shader lifecycle/settings boundaries. Build with `HarmonyReferenceDir`, then
+launch Godot with `--headless --path tests/FramePreparation.Tests`; on Linux set
+`DOTNET_ROOT` to the .NET SDK root and `LD_PRELOAD=libgcc_s.so.1` for MonoMod's
+native unwinder. The malformed-resource error is expected before the final PASS.
+
 Touch preview compatibility now has a first-pass patch in
 `Patches/MobileTapPreviewPatches.cs`: when companion `touch_lift_preview` is
 true, tapping a playable hand card pins its hover preview; a second tap follows

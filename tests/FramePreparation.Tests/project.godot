@@ -1,0 +1,12 @@
+config_version=5
+
+[application]
+config/name="FramePreparation.Tests"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.5", "C#")
+
+[dotnet]
+project/assembly_name="FramePreparation.Tests"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"

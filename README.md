@@ -79,6 +79,9 @@ Current implementation (`STS2AndroidPortCompat`):
   and applies the companion `pending_unlock_all.flag` command.
 - `ModLoaderPatches` redirects local mods to `OS.GetDataDir()/mods` and skips
   Steam mod enumeration.
+  Runtime manifest aliases accept only file basenames and never follow symlink files or directories.
+  Run `dotnet run --project tests/ModManifestAlias.Tests/ModManifestAlias.Tests.csproj`
+  for isolated traversal, Unicode-name and symlink regressions (no game assemblies required).
 - `DeferredModPatchQueue` protects Android/Mono from user-MOD patches that
   eagerly initialize STS2 UI/Godot types before essential startup. It covers
   both direct `PatchProcessor.Patch()` calls and the per-target private

@@ -273,9 +273,10 @@ public static class ModLoaderPatches
 
     private static void NormalizeManifestAliases(string modsRoot)
     {
-        if (!Directory.Exists(modsRoot))
+        if (!Directory.Exists(modsRoot) || (File.GetAttributes(modsRoot) & FileAttributes.ReparsePoint) != 0)
             return;
-        foreach (var manifestPath in Directory.EnumerateFiles(modsRoot, "mod_manifest.json", SearchOption.AllDirectories))
+        var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
+        foreach (var manifestPath in Directory.EnumerateFiles(modsRoot, "mod_manifest.json", options))
         {
             TryCopyManifestAlias(manifestPath);
         }
@@ -288,12 +289,13 @@ public static class ModLoaderPatches
             var dir = Path.GetDirectoryName(manifestPath);
             if (string.IsNullOrEmpty(dir))
                 return;
-            var modId = ReadManifestId(manifestPath);
+            RequireManifestSibling(dir, Path.GetFileName(manifestPath));
+            var modId = ReadManifestId(manifestPath)?.Trim();
             if (string.IsNullOrWhiteSpace(modId))
                 modId = Path.GetFileName(dir);
-            if (string.IsNullOrWhiteSpace(modId))
-                return;
-            var alias = Path.Combine(dir, modId + ".json");
+            if (!IsSafeModBaseName(modId))
+                throw new IOException("Invalid MOD id: " + modId);
+            var alias = RequireManifestSibling(dir, modId + ".json");
             if (Path.GetFullPath(alias).Equals(Path.GetFullPath(manifestPath), StringComparison.OrdinalIgnoreCase))
                 return;
             if (!File.Exists(alias))
@@ -303,7 +305,7 @@ public static class ModLoaderPatches
             }
             if (File.Exists(alias) && string.Equals(ReadManifestId(alias), modId, StringComparison.Ordinal) && IsGeneratedManifestAlias(alias))
             {
-                File.Delete(manifestPath);
+                File.Delete(RequireManifestSibling(dir, Path.GetFileName(manifestPath)));
                 PatchHelper.Log($"[Mods] Removed duplicate mod_manifest.json after aliasing {Path.GetFileName(alias)}.");
             }
         }
@@ -311,6 +313,30 @@ public static class ModLoaderPatches
         {
             PatchHelper.Log($"[Mods] Manifest alias normalization failed for {manifestPath}: {exception.Message}");
         }
+    }
+
+    private static bool IsSafeModBaseName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name == "." || name == "..")
+            return false;
+        foreach (var c in name)
+        {
+            if (c < 32 || "/\\:*?\"<>|".IndexOf(c) >= 0)
+                return false;
+        }
+        return true;
+    }
+
+    private static string RequireManifestSibling(string directory, string name)
+    {
+        if (!IsSafeModBaseName(name))
+            throw new IOException("Invalid MOD file name: " + name);
+        var parent = Path.GetFullPath(directory);
+        var path = Path.GetFullPath(Path.Combine(parent, name));
+        if (!string.Equals(Path.GetDirectoryName(path), parent, StringComparison.Ordinal)
+            || new FileInfo(path).LinkTarget != null)
+            throw new IOException("MOD file escapes manifest directory: " + name);
+        return path;
     }
 
     private static void WriteManifestAlias(string sourcePath, string aliasPath)

@@ -14,12 +14,13 @@ public static class AppPaths
     private static string _gameDir;
     private static string _accountRoot;
     private static string _modsDir;
+    private static string _settingsPath;
 
     public static string DataDir => _dataDir ??= ResolveDataDir();
     public static string GameDir => _gameDir ??= ResolveLaunchContextPath("selected_game_dir", Path.Combine(DataDir, "game"));
     public static string ReleaseInfoPath => Path.Combine(GameDir, "release_info.json");
     public static string AccountRoot => _accountRoot ??= ResolveLaunchContextPath("selected_account_root", ResolveLegacyAccountRoot());
-    public static string SettingsPath => Path.Combine(AccountRoot, "settings.save");
+    public static string SettingsPath => _settingsPath ??= Path.Combine(AccountRoot, "settings.save");
     public static string PendingUnlockAllPath => Path.Combine(AccountRoot, "pending_unlock_all.flag");
     public static string ModsDir => _modsDir ??= ResolveLaunchContextPath("selected_mods_dir", Path.Combine(DataDir, "mods"));
 

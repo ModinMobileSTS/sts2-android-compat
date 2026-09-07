@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -7,8 +8,13 @@ namespace STS2Mobile.Android;
 
 public static class AndroidSettingsBridge
 {
+    private const long RefreshIntervalMs = 250;
+    private static readonly object CacheLock = new();
     private static DateTime _lastReadUtc;
-    private static JsonDocument _cached;
+    private static long _lastLength = -1;
+    private static long _nextCheckMs;
+    private static bool _forceReload = true;
+    private static Dictionary<string, JsonElement> _cached;
 
     public static string SettingsPath => AppPaths.SettingsPath;
 
@@ -29,9 +35,11 @@ public static class AndroidSettingsBridge
 
     public static void InvalidateCache()
     {
-        _cached?.Dispose();
-        _cached = null;
-        _lastReadUtc = DateTime.MinValue;
+        lock (CacheLock)
+        {
+            _forceReload = true;
+            _nextCheckMs = 0;
+        }
     }
 
     public static bool GetBool(string key, bool fallback = false)
@@ -208,24 +216,44 @@ public static class AndroidSettingsBridge
 
     public static bool TryGet(string key, out JsonElement element)
     {
-        element = default;
-        try
+        lock (CacheLock)
         {
-            var file = new FileInfo(AppPaths.SettingsPath);
-            if (!file.Exists)
-                return false;
-            if (_cached == null || file.LastWriteTimeUtc > _lastReadUtc)
+            long now = Environment.TickCount64;
+            if (now >= _nextCheckMs)
             {
-                _cached?.Dispose();
-                _cached = JsonDocument.Parse(File.ReadAllText(file.FullName));
-                _lastReadUtc = file.LastWriteTimeUtc;
+                _nextCheckMs = now + RefreshIntervalMs;
+                try
+                {
+                    var file = new FileInfo(SettingsPath);
+                    if (!file.Exists)
+                    {
+                        _cached = null;
+                        _forceReload = true;
+                    }
+                    else if (_forceReload || file.LastWriteTimeUtc != _lastReadUtc || file.Length != _lastLength)
+                    {
+                        using var document = JsonDocument.Parse(File.ReadAllText(file.FullName));
+                        // Clone once: returned elements keep their immutable owner alive across
+                        // invalidation, including callers enumerating arrays outside this lock.
+                        var root = document.RootElement.Clone();
+                        var snapshot = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+                        foreach (var property in root.EnumerateObject())
+                            snapshot[property.Name] = property.Value;
+                        _cached = snapshot;
+                        _lastReadUtc = file.LastWriteTimeUtc;
+                        _lastLength = file.Length;
+                        _forceReload = false;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    // An in-progress external write must not discard the last complete snapshot.
+                    _forceReload = true;
+                    PatchHelper.Log($"Failed to refresh Android settings: {exception.Message}");
+                }
             }
-            return _cached.RootElement.TryGetProperty(key, out element);
-        }
-        catch (Exception exception)
-        {
-            PatchHelper.Log($"Failed to read Android setting '{key}': {exception.Message}");
-            return false;
+            element = default;
+            return _cached != null && _cached.TryGetValue(key, out element);
         }
     }
 }

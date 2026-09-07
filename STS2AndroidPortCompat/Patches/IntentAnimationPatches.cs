@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
+using System.Runtime.CompilerServices;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Assets;
@@ -16,22 +16,24 @@ public static class IntentAnimationPatches
     private const float BobOffset = 8f;
     private const int AnimationFps = 24;
 
-    private static readonly Dictionary<ulong, IntentAnimState> States = new();
-    private static readonly BindingFlags InstanceFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+    private static readonly ConditionalWeakTable<NIntent, IntentAnimState> States = new();
 
     public static void Apply(Harmony harmony)
     {
         PatchHelper.Patch(harmony, typeof(NIntent), "_Ready", postfix: PatchHelper.Method(typeof(IntentAnimationPatches), nameof(ReadyPostfix)));
         PatchHelper.Patch(harmony, typeof(NIntent), "_ExitTree", prefix: PatchHelper.Method(typeof(IntentAnimationPatches), nameof(ExitTreePrefix)));
         PatchHelper.Patch(harmony, typeof(NIntent), "UpdateIntent", postfix: PatchHelper.Method(typeof(IntentAnimationPatches), nameof(UpdateIntentPostfix)));
-        PatchHelper.Patch(harmony, typeof(NIntent), "_Process", prefix: PatchHelper.Method(typeof(IntentAnimationPatches), nameof(ProcessPrefix)));
+        var framesField = AccessTools.Field(typeof(NIntent), "_animationFrames");
+        var processPrefix = framesField?.FieldType == typeof(List<Texture2D>)
+            ? nameof(ProcessWithFramesPrefix) : nameof(ProcessPrefix);
+        PatchHelper.Patch(harmony, typeof(NIntent), "_Process", prefix: PatchHelper.Method(typeof(IntentAnimationPatches), processPrefix));
     }
 
-    public static void ReadyPostfix(NIntent __instance)
+    public static void ReadyPostfix(NIntent __instance, Control ____intentHolder, float ____timeOffset)
     {
         try
         {
-            StartBobTween(__instance);
+            StartBobTween(__instance, ____intentHolder, ____timeOffset);
             var state = GetState(__instance);
             state.AnimationStartTimeSeconds = GetCurrentTimeSeconds();
         }
@@ -46,7 +48,7 @@ public static class IntentAnimationPatches
         try
         {
             GetState(__instance, create: false)?.BobTween?.Kill();
-            States.Remove(__instance.GetInstanceId());
+            States.Remove(__instance);
         }
         catch (Exception exception)
         {
@@ -54,18 +56,13 @@ public static class IntentAnimationPatches
         }
     }
 
-    public static void UpdateIntentPostfix(NIntent __instance)
+    public static void UpdateIntentPostfix(NIntent __instance, string ____animationName)
     {
         try
         {
             var state = GetState(__instance);
-            var animationName = GetAnimationName(__instance);
-            if (!string.Equals(state.AnimationName, animationName, StringComparison.Ordinal))
-            {
-                state.AnimationName = animationName;
-                state.AnimationFrame = null;
-                state.AnimationStartTimeSeconds = GetCurrentTimeSeconds();
-            }
+            if (!string.Equals(state.AnimationName, ____animationName, StringComparison.Ordinal))
+                ResetAnimation(state, ____animationName);
         }
         catch (Exception exception)
         {
@@ -73,33 +70,52 @@ public static class IntentAnimationPatches
         }
     }
 
-    public static bool ProcessPrefix(NIntent __instance)
+    public static bool ProcessPrefix(NIntent __instance, string ____animationName, Sprite2D ____intentSprite)
+    {
+        return ProcessAnimation(__instance, ____animationName, ____intentSprite, null);
+    }
+
+    public static bool ProcessWithFramesPrefix(NIntent __instance, string ____animationName,
+        Sprite2D ____intentSprite, List<Texture2D> ____animationFrames)
+    {
+        return ProcessAnimation(__instance, ____animationName, ____intentSprite, ____animationFrames);
+    }
+
+    private static bool ProcessAnimation(NIntent intent, string animationName, Sprite2D sprite,
+        List<Texture2D> gameFrames)
     {
         try
         {
-            var state = GetState(__instance);
-            var animationName = GetAnimationName(__instance);
             if (string.IsNullOrEmpty(animationName))
                 return false;
-
+            var state = GetState(intent);
+            // Combat-state updates may change visuals without calling UpdateIntent.
             if (!string.Equals(state.AnimationName, animationName, StringComparison.Ordinal))
-            {
-                state.AnimationName = animationName;
-                state.AnimationFrame = null;
-                state.AnimationStartTimeSeconds = GetCurrentTimeSeconds();
-            }
+                ResetAnimation(state, animationName);
 
-            var frameCount = IntentAnimData.GetAnimationFrameCount(animationName);
+            if (gameFrames == null)
+                state.Frames ??= new Texture2D[IntentAnimData.GetAnimationFrameCount(animationName)];
+            var frameCount = gameFrames?.Count ?? state.Frames.Length;
             if (frameCount <= 0)
                 return false;
-
             var frame = (int)((GetCurrentTimeSeconds() - state.AnimationStartTimeSeconds) * AnimationFps) % frameCount;
-            if (state.AnimationFrame != frame)
+            if (state.AnimationFrame != frame && sprite != null)
             {
+                Texture2D texture;
+                if (gameFrames != null)
+                {
+                    texture = gameFrames[frame];
+                }
+                else
+                {
+                    // Old payloads have no frame list. Load on first use, preserving
+                    // their loading timing, and retain only this intent's animation.
+                    texture = state.Frames[frame];
+                    if (texture == null || !GodotObject.IsInstanceValid(texture))
+                        state.Frames[frame] = texture = PreloadManager.Cache.GetTexture2D(IntentAnimData.GetAnimationFrame(animationName, frame));
+                }
+                sprite.Texture = texture;
                 state.AnimationFrame = frame;
-                var sprite = GetField<Sprite2D>(__instance, "_intentSprite");
-                if (sprite != null)
-                    sprite.Texture = PreloadManager.Cache.GetTexture2D(IntentAnimData.GetAnimationFrame(animationName, frame));
             }
             return false;
         }
@@ -110,16 +126,22 @@ public static class IntentAnimationPatches
         }
     }
 
-    private static void StartBobTween(NIntent intent)
+    private static void ResetAnimation(IntentAnimState state, string animationName)
     {
-        var holder = GetField<Control>(intent, "_intentHolder");
+        state.AnimationName = animationName;
+        state.AnimationFrame = null;
+        state.AnimationStartTimeSeconds = GetCurrentTimeSeconds();
+        state.Frames = null;
+    }
+
+    private static void StartBobTween(NIntent intent, Control holder, float timeOffset)
+    {
         if (holder == null)
             return;
 
         var state = GetState(intent);
         state.BobTween?.Kill();
 
-        var timeOffset = GetFieldValue<float>(intent, "_timeOffset");
         var phase = Mathf.PosMod(timeOffset, Mathf.Tau);
         holder.Position = new Vector2(holder.Position.X, GetBobPositionY(phase));
 
@@ -168,29 +190,13 @@ public static class IntentAnimationPatches
 
     private static double GetCurrentTimeSeconds() => Time.GetTicksUsec() * 1E-06;
 
-    private static string GetAnimationName(NIntent intent) => GetFieldValue<string>(intent, "_animationName");
 
     private static IntentAnimState GetState(NIntent intent, bool create = true)
     {
-        var id = intent.GetInstanceId();
-        if (!States.TryGetValue(id, out var state) && create)
-        {
-            state = new IntentAnimState();
-            States[id] = state;
-        }
-        return state;
+        return States.TryGetValue(intent, out var state) ? state : create ? States.GetOrCreateValue(intent) : null;
     }
 
-    private static T GetField<T>(object target, string name) where T : class
-    {
-        return target?.GetType().GetField(name, InstanceFlags)?.GetValue(target) as T;
-    }
 
-    private static T GetFieldValue<T>(object target, string name)
-    {
-        var value = target?.GetType().GetField(name, InstanceFlags)?.GetValue(target);
-        return value is T typed ? typed : default;
-    }
 
     private sealed class IntentAnimState
     {
@@ -198,5 +204,6 @@ public static class IntentAnimationPatches
         public string AnimationName;
         public int? AnimationFrame;
         public double AnimationStartTimeSeconds;
+        public Texture2D[] Frames;
     }
 }

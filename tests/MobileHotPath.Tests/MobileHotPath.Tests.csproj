@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <DefineConstants Condition="'$(LegacyIntent)' != 'true'">$(DefineConstants);MODERN_INTENT</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../STS2AndroidPortCompat/Patches/MobileTooltipPatches.cs" Link="MobileTooltipPatches.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/IntentAnimationPatches.cs" Link="IntentAnimationPatches.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/TouchInputPatches.cs" Link="TouchInputPatches.cs" />
+    <Reference Include="0Harmony"><HintPath>$(HarmonyReferenceDir)/0Harmony.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Core"><HintPath>$(HarmonyReferenceDir)/MonoMod.Core.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Utils"><HintPath>$(HarmonyReferenceDir)/MonoMod.Utils.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Backports"><HintPath>$(HarmonyReferenceDir)/MonoMod.Backports.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Iced"><HintPath>$(HarmonyReferenceDir)/MonoMod.Iced.dll</HintPath></Reference>
+    <Reference Include="MonoMod.ILHelpers"><HintPath>$(HarmonyReferenceDir)/MonoMod.ILHelpers.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(HarmonyReferenceDir)/Mono.Cecil.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

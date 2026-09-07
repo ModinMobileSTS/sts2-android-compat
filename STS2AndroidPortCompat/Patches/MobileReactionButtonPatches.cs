@@ -20,6 +20,8 @@ namespace STS2Mobile.Patches;
 public static class MobileReactionButtonPatches
 {
     private const string ButtonName = "AndroidMobileReactionButton";
+    private static AndroidMobileReactionButton _activeInputButton;
+    private static NGame _activeInputGame;
 
     public static void Apply(Harmony harmony)
     {
@@ -104,13 +106,29 @@ public static class MobileReactionButtonPatches
     {
         try
         {
-            var button = __instance?.GetNodeOrNull<AndroidMobileReactionButton>(ButtonName);
-            button?.HandleGlobalInput(inputEvent);
+            var button = _activeInputButton;
+            if (button != null && ReferenceEquals(__instance, _activeInputGame)
+                && GodotObject.IsInstanceValid(button))
+                button.HandleGlobalInput(inputEvent);
         }
         catch (Exception exception)
         {
             PatchHelper.Log($"Mobile reaction button global input bridge failed: {exception.Message}");
         }
+    }
+
+    internal static void BeginPointerInput(AndroidMobileReactionButton button)
+    {
+        _activeInputButton = button;
+        _activeInputGame = NGame.Instance;
+    }
+
+    internal static void EndPointerInput(AndroidMobileReactionButton button)
+    {
+        if (!ReferenceEquals(_activeInputButton, button))
+            return;
+        _activeInputButton = null;
+        _activeInputGame = null;
     }
 
 
@@ -292,6 +310,7 @@ public partial class AndroidMobileReactionButton : Control
             _wheelCenter = wheelCenter;
 
             _pointerState.TryBegin(pointerId);
+            MobileReactionButtonPatches.BeginPointerInput(this);
             AnimatePressed(true);
             GetViewport()?.SetInputAsHandled();
             PatchHelper.Log($"Mobile reaction button press accepted: pointer={pointerId}; center={wheelCenter}");
@@ -415,6 +434,7 @@ public partial class AndroidMobileReactionButton : Control
     private void CancelInteraction()
     {
         _pointerState.Cancel();
+        MobileReactionButtonPatches.EndPointerInput(this);
         var wheel = NGame.Instance?.ReactionWheel;
         if (wheel != null && wheel.Visible)
             HideWheel(wheel, react: false);

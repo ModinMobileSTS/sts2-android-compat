@@ -157,6 +157,24 @@ Companion `mobile_tooltip_mode` defaults to `immediate` (PC behavior), can be
 set to `long_press` to hide hover tooltips until the same touch is held for
 `mobile_tooltip_long_press_ms` (default 1000 ms), or `hidden` to suppress normal
 hover tooltips while keeping explicit inspect/detail screens visible.
+The immediate-mode frame callback does not build tracking state. Managed modes
+reuse owner/tip weak references and cache detail ancestry until the owner exits
+the tree. A revealed hold only repeats the full reveal operation when its tip
+changes; clearing/recreating tips retains the original hold deadline. Vanilla
+tooltip following remains enabled.
+
+`IntentAnimationPatches` binds private fields through Harmony once and reuses the
+payload's animation-frame list when available. Older payloads lazily retain only
+the current intent's played frames; animation changes and tree exit release that
+cache. Combat-state updates outside `UpdateIntent` remain visible, with the same
+24 FPS playback and bob tween. Input release handlers reject unrelated events
+before settings lookups and cache reflection metadata per actual runtime type.
+The reaction button owns global input routing only during an active press.
+
+Synthetic regressions live in `tests/MobileHotPath.Tests` (relative to the compat
+repository root). Supply `HarmonyReferenceDir` pointing to the packaged runtime
+DLLs; run both the default shape and `-p:LegacyIntent=true`. They exercise actual
+Harmony patches and behavioral transitions without commercial game code.
 
 Touch preview compatibility now has a first-pass patch in
 `Patches/MobileTapPreviewPatches.cs`: when companion `touch_lift_preview` is

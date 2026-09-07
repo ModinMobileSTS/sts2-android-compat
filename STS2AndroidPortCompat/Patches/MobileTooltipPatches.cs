@@ -46,6 +46,7 @@ public static class MobileTooltipPatches
     private static Vector2 _lastPressPosition;
     private static WeakReference<Control> _pendingOwner;
     private static WeakReference<Control> _revealedOwner;
+    private static WeakReference<NHoverTipSet> _revealedTip;
     private static int _clearDepth;
     private static bool _forceRemoving;
 
@@ -79,12 +80,11 @@ public static class MobileTooltipPatches
     {
         try
         {
-            var owner = __0;
-            if (owner == null || IsExplicitDetailOwner(owner))
-                return true;
-
             var mode = GetTooltipMode();
             if (!ShouldManage(mode))
+                return true;
+            var owner = __0;
+            if (owner == null || IsExplicitDetailOwner(owner))
                 return true;
 
             if (mode == ModeHidden)
@@ -107,17 +107,13 @@ public static class MobileTooltipPatches
     {
         try
         {
-            var owner = __0;
-            if (owner == null || __result == null)
-                return;
-            if (IsExplicitDetailOwner(owner))
-                return;
-
-            Track(owner, __result);
-
             var mode = GetTooltipMode();
             if (!ShouldManage(mode))
                 return;
+            var owner = __0;
+            if (owner == null || __result == null || IsExplicitDetailOwner(owner))
+                return;
+            Track(owner, __result);
 
             if (mode == ModeHidden)
             {
@@ -214,17 +210,17 @@ public static class MobileTooltipPatches
         }
     }
 
-    public static void HoverTipProcessPostfix(NHoverTipSet __instance)
+    public static void HoverTipProcessPostfix(NHoverTipSet __instance, Control ____owner)
     {
         try
         {
-            if (__instance == null || !IsMobileRuntime())
-                return;
-
-            var owner = TrackActiveTip(__instance);
             var mode = GetTooltipMode();
-            if (!ShouldManage(mode))
+            if (!ShouldManage(mode) || __instance == null)
                 return;
+            var owner = ____owner;
+            if (owner == null || IsExplicitDetailOwner(owner))
+                return;
+            Track(owner, __instance);
 
             if (mode == ModeLongPress)
             {
@@ -263,7 +259,7 @@ public static class MobileTooltipPatches
     {
         try
         {
-            if (GetTooltipMode() != ModeLongPress || !IsMobileRuntime())
+            if (GetTooltipMode() != ModeLongPress || !IsMobileRuntime() || IsExplicitDetailOwner(owner))
                 return;
             HandlePointerInput(owner, inputEvent, ownerEvent: true);
         }
@@ -335,6 +331,7 @@ public static class MobileTooltipPatches
         _lastPressPosition = position;
         SetWeak(ref _pendingOwner, owner ?? FindOwnerAtPosition(position));
         _revealedOwner = null;
+        _revealedTip = null;
         ArmLongPressTimer(_pressSerial);
     }
 
@@ -363,6 +360,7 @@ public static class MobileTooltipPatches
             _pressSerial++;
         _pendingOwner = null;
         _revealedOwner = null;
+        _revealedTip = null;
         _pressStartMsec = 0;
         _pressStartPosition = Vector2.Zero;
         _lastPressPosition = Vector2.Zero;
@@ -421,10 +419,17 @@ public static class MobileTooltipPatches
     {
         if (owner == null || !TryGetTip(owner, out var tip))
             return false;
+        if (IsSameOwner(owner, Resolve(_revealedOwner))
+            && TryResolve(_revealedTip, out var revealed) && ReferenceEquals(revealed, tip))
+        {
+            SetTipVisible(tip, true);
+            return true;
+        }
         HideAllManagedTips(exceptOwner: owner);
         SetTipVisible(tip, true);
         SetWeak(ref _pendingOwner, owner);
         SetWeak(ref _revealedOwner, owner);
+        SetWeak(ref _revealedTip, tip);
         return true;
     }
 
@@ -438,8 +443,7 @@ public static class MobileTooltipPatches
 
     private static bool IsRevealedTip(NHoverTipSet tip)
     {
-        var owner = Resolve(_revealedOwner);
-        return owner != null && TryGetTip(owner, out var revealedTip) && ReferenceEquals(revealedTip, tip);
+        return TryResolve(_revealedTip, out var revealedTip) && ReferenceEquals(revealedTip, tip);
     }
 
     private static void Track(Control owner, NHoverTipSet tip)
@@ -447,24 +451,21 @@ public static class MobileTooltipPatches
         if (owner == null || tip == null)
             return;
         var key = owner.GetInstanceId();
-        Owners[key] = new WeakReference<Control>(owner);
-        Tips[key] = new WeakReference<NHoverTipSet>(tip);
+        if (Owners.TryGetValue(key, out var ownerRef) && TryResolve(ownerRef, out var trackedOwner)
+            && ReferenceEquals(trackedOwner, owner)
+            && Tips.TryGetValue(key, out var tipRef) && TryResolve(tipRef, out var trackedTip)
+            && ReferenceEquals(trackedTip, tip))
+            return;
+        Owners.TryGetValue(key, out ownerRef);
+        SetWeak(ref ownerRef, owner);
+        Owners[key] = ownerRef;
+        Tips.TryGetValue(key, out tipRef);
+        SetWeak(ref tipRef, tip);
+        Tips[key] = tipRef;
         ConnectOwnerInput(owner);
         CleanupDeadEntries();
     }
 
-    private static Control TrackActiveTip(NHoverTipSet tip)
-    {
-        if (tip == null || !GodotObject.IsInstanceValid(tip))
-            return null;
-        var owner = GetTipOwner(tip);
-        if (owner != null && !IsExplicitDetailOwner(owner))
-        {
-            Track(owner, tip);
-            return owner;
-        }
-        return null;
-    }
 
     private static void SyncActiveHoverTips()
     {
@@ -521,7 +522,10 @@ public static class MobileTooltipPatches
         if (!preservePressOwner && IsSameOwner(owner, Resolve(_pendingOwner)))
             _pendingOwner = null;
         if (!preservePressOwner && IsSameOwner(owner, Resolve(_revealedOwner)))
+        {
             _revealedOwner = null;
+            _revealedTip = null;
+        }
     }
 
     private static void ConnectOwnerInput(Control owner)
@@ -530,10 +534,14 @@ public static class MobileTooltipPatches
         {
             if (owner == null || !GodotObject.IsInstanceValid(owner) || ConnectedOwnerStates.TryGetValue(owner, out _))
                 return;
-            ConnectedOwnerStates.GetOrCreateValue(owner);
+            var state = ConnectedOwnerStates.GetOrCreateValue(owner);
             owner.Connect(Control.SignalName.GuiInput, Callable.From<InputEvent>(inputEvent => OnOwnerGuiInput(owner, inputEvent)));
             owner.Connect(Control.SignalName.MouseExited, Callable.From(() => OnOwnerMouseExited(owner)));
-            owner.Connect(Node.SignalName.TreeExiting, Callable.From(() => Untrack(owner)));
+            owner.Connect(Node.SignalName.TreeExiting, Callable.From(() =>
+            {
+                state.DetailClassificationKnown = false;
+                Untrack(owner);
+            }));
         }
         catch (Exception exception)
         {
@@ -668,7 +676,7 @@ public static class MobileTooltipPatches
 
     private static void SetTipVisible(NHoverTipSet tip, bool visible)
     {
-        if (tip == null || !GodotObject.IsInstanceValid(tip))
+        if (tip == null || !GodotObject.IsInstanceValid(tip) || tip.Visible == visible)
             return;
         tip.Visible = visible;
     }
@@ -726,17 +734,19 @@ public static class MobileTooltipPatches
 
     private static void CleanupDeadEntries()
     {
-        var dead = new List<ulong>();
+        List<ulong> dead = null;
         foreach (var item in Owners)
         {
             if (!TryResolve(item.Value, out _))
-                dead.Add(item.Key);
+                (dead ??= new List<ulong>()).Add(item.Key);
         }
         foreach (var item in Tips)
         {
             if (!TryResolve(item.Value, out _))
-                dead.Add(item.Key);
+                (dead ??= new List<ulong>()).Add(item.Key);
         }
+        if (dead == null)
+            return;
         foreach (var key in dead)
         {
             Owners.Remove(key);
@@ -758,9 +768,14 @@ public static class MobileTooltipPatches
         return TryResolve(weak, out Control owner) ? owner : null;
     }
 
-    private static void SetWeak(ref WeakReference<Control> weak, Control owner)
+    private static void SetWeak<T>(ref WeakReference<T> weak, T target) where T : GodotObject
     {
-        weak = owner == null ? null : new WeakReference<Control>(owner);
+        if (target == null)
+            weak = null;
+        else if (weak == null)
+            weak = new WeakReference<T>(target);
+        else
+            weak.SetTarget(target);
     }
 
     private static bool IsSameOwner(Control left, Control right)
@@ -787,21 +802,37 @@ public static class MobileTooltipPatches
 
     private static bool ShouldManage(string mode)
     {
-        return IsMobileRuntime() && (mode == ModeLongPress || mode == ModeHidden);
+        return (mode == ModeLongPress || mode == ModeHidden) && IsMobileRuntime();
     }
 
     private static bool IsExplicitDetailOwner(Control owner)
     {
         try
         {
+            if (owner == null)
+                return false;
+            if (!ConnectedOwnerStates.TryGetValue(owner, out var state))
+            {
+                ConnectOwnerInput(owner);
+                if (!ConnectedOwnerStates.TryGetValue(owner, out state))
+                    return false;
+            }
+            if (state.DetailClassificationKnown)
+                return state.IsDetailOwner;
+            state.IsDetailOwner = false;
             for (Node node = owner; node != null && GodotObject.IsInstanceValid(node); node = node.GetParent())
             {
                 var name = node.GetType().Name;
                 if (name == "NInspectCardScreen"
                     || name == "NInspectRelicScreen"
                     || name == "NPotionPopup")
-                    return true;
+                {
+                    state.IsDetailOwner = true;
+                    break;
+                }
             }
+            state.DetailClassificationKnown = true;
+            return state.IsDetailOwner;
         }
         catch
         {
@@ -936,5 +967,7 @@ public static class MobileTooltipPatches
 
     private sealed class ConnectedOwnerState
     {
+        public bool DetailClassificationKnown;
+        public bool IsDetailOwner;
     }
 }

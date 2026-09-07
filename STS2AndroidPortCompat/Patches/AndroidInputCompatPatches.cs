@@ -91,7 +91,7 @@ public static class AndroidInputCompatPatches
     {
         try
         {
-            if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
+            if (inputEvent is not InputEventJoypadMotion || !OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
                 return true;
             foreach (var mapped in EnumerateCompatibleControllerEvents(inputEvent))
                 DispatchMappedControllerInput(__instance, mapped.Action, mapped.Pressed);

@@ -11,17 +11,18 @@ namespace STS2Mobile.Patches;
 
 public static class TouchInputPatches
 {
-    private static readonly ConditionalWeakTable<object, TouchState> States = new ConditionalWeakTable<object, TouchState>();
+    private static readonly ConditionalWeakTable<Type, InputMembers> Members = new();
     private static readonly ConditionalWeakTable<object, TargetState> TargetStates = new ConditionalWeakTable<object, TargetState>();
 
     public static void Apply(Harmony harmony)
     {
         var mouseCardPlayType = typeof(NMouseCardPlay);
         PatchHelper.Patch(harmony, mouseCardPlayType, "_Input", postfix: PatchHelper.Method(typeof(TouchInputPatches), nameof(MouseCardPlayInputPostfix)));
-        PatchHelper.Patch(harmony, mouseCardPlayType, "Start", postfix: PatchHelper.Method(typeof(TouchInputPatches), nameof(MouseCardPlayStartPostfix)));
         PatchHelper.Patch(harmony, mouseCardPlayType, "OnCancelPlayCard", postfix: PatchHelper.Method(typeof(TouchInputPatches), nameof(MouseCardPlayCancelPostfix)));
 
         var targetManagerType = typeof(NTargetManager);
+        GetMembers(mouseCardPlayType);
+        GetMembers(targetManagerType);
         foreach (var method in targetManagerType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
         {
             if (method.Name == "StartTargeting")
@@ -30,23 +31,18 @@ public static class TouchInputPatches
         PatchHelper.Patch(harmony, targetManagerType, "_Input", prefix: PatchHelper.Method(typeof(TouchInputPatches), nameof(TargetManagerInputPrefix)));
     }
 
-    public static void MouseCardPlayStartPostfix(object __instance)
-    {
-        var state = States.GetOrCreateValue(__instance);
-        state.KeepHolderFocusedAfterCancel = false;
-    }
 
     public static void MouseCardPlayInputPostfix(object __instance, InputEvent inputEvent)
     {
         try
         {
-            if (!IsTouchOptimized() || !IsLeftRelease(inputEvent))
+            if (!IsLeftRelease(inputEvent) || !IsTouchOptimized())
                 return;
 
-            if (!IsCardInPlayZone(__instance))
+            var members = GetMembers(__instance.GetType());
+            if (members.IsInPlayZone == null || !(bool)members.IsInPlayZone.Invoke(__instance, null))
             {
-                var cancelMethod = __instance.GetType().GetMethod("CancelPlayCard", BindingFlags.Public | BindingFlags.Instance);
-                cancelMethod?.Invoke(__instance, null);
+                members.CancelPlay?.Invoke(__instance, null);
                 PatchHelper.Log("Touch input cancelled card play: released outside play zone.");
             }
         }
@@ -63,7 +59,7 @@ public static class TouchInputPatches
             var targetManager = NTargetManager.Instance;
             if (targetManager != null)
                 ConsumeCancelledByUntargetedRelease(targetManager);
-            var holder = GetField(__instance, "Holder") ?? __instance.GetType().BaseType?.GetField("Holder", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(__instance);
+            var holder = GetMembers(__instance.GetType()).Holder?.GetValue(__instance);
             if (holder is NHandCardHolder handHolder)
                 MobileTapPreviewPatches.RepinAfterCancelledCardPlay(handHolder);
         }
@@ -82,17 +78,17 @@ public static class TouchInputPatches
     {
         try
         {
-            if (!IsTouchOptimized() || !IsLeftRelease(inputEvent))
+            if (!IsLeftRelease(inputEvent) || !IsTouchOptimized())
                 return true;
-            var targetMode = GetField(__instance, "_targetMode");
+            var members = GetMembers(__instance.GetType());
+            var targetMode = members.TargetMode?.GetValue(__instance);
             if (targetMode == null || targetMode.ToString() != "ReleaseMouseToTarget")
                 return true;
-            var hoveredNode = GetProperty(__instance, "HoveredNode");
+            var hoveredNode = members.HoveredNode?.GetValue(__instance);
             if (hoveredNode != null)
                 return true;
             TargetStates.GetOrCreateValue(__instance).CancelledByUntargetedRelease = true;
-            var finish = __instance.GetType().GetMethod("FinishTargeting", BindingFlags.NonPublic | BindingFlags.Instance);
-            finish?.Invoke(__instance, new object[] { true });
+            members.FinishTargeting?.Invoke(__instance, new object[] { true });
             return false;
         }
         catch (Exception exception)
@@ -123,35 +119,34 @@ public static class TouchInputPatches
             || inputEvent is InputEventScreenTouch { Pressed: false };
     }
 
-    private static bool IsCardInPlayZone(object mouseCardPlay)
-    {
-        var method = mouseCardPlay.GetType().GetMethod("IsCardInPlayZone", BindingFlags.NonPublic | BindingFlags.Instance);
-        return method != null && (bool)method.Invoke(mouseCardPlay, null);
-    }
+    private static InputMembers GetMembers(Type type) => Members.GetValue(type, static key => new InputMembers(key));
 
-    private static object GetField(object target, string name)
-    {
-        return target.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target);
-    }
 
-    private static object GetProperty(object target, string name)
-    {
-        return target.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target);
-    }
 
-    private static void SetField(object target, string name, object value)
-    {
-        var field = target.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        field?.SetValue(target, value);
-    }
 
     private sealed class TargetState
     {
         public bool CancelledByUntargetedRelease;
     }
 
-    private sealed class TouchState
+    private sealed class InputMembers
     {
-        public bool KeepHolderFocusedAfterCancel;
+        public readonly MethodInfo IsInPlayZone;
+        public readonly MethodInfo CancelPlay;
+        public readonly MethodInfo FinishTargeting;
+        public readonly FieldInfo Holder;
+        public readonly FieldInfo TargetMode;
+        public readonly PropertyInfo HoveredNode;
+
+        public InputMembers(Type type)
+        {
+            const BindingFlags instance = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            IsInPlayZone = type.GetMethod("IsCardInPlayZone", BindingFlags.NonPublic | BindingFlags.Instance);
+            CancelPlay = type.GetMethod("CancelPlayCard", BindingFlags.Public | BindingFlags.Instance);
+            FinishTargeting = type.GetMethod("FinishTargeting", BindingFlags.NonPublic | BindingFlags.Instance);
+            Holder = type.GetField("Holder", instance) ?? type.BaseType?.GetField("Holder", instance);
+            TargetMode = type.GetField("_targetMode", instance);
+            HoveredNode = type.GetProperty("HoveredNode", instance);
+        }
     }
 }

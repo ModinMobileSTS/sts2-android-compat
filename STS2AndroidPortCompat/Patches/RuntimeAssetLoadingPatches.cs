@@ -89,11 +89,43 @@ internal static class RuntimeAssetLoadingPatches
     private static bool VfxPrefix(AssetLoadingSession __instance) => Allow(__instance, 3);
     private static bool Allow(AssetLoadingSession session, int phase) => Budgets.GetValue(session, static _ => new Budget()).Take(phase);
 
+    private struct FrameBudget
+    {
+        private ulong _frame;
+        private ulong _started;
+        private int _items;
+        private readonly int _maximumItems;
+
+        internal FrameBudget(int maximumItems)
+        {
+            _frame = Engine.GetProcessFrames();
+            _started = Time.GetTicksUsec();
+            _items = 0;
+            _maximumItems = maximumItems;
+        }
+
+        internal bool TryBeginItem(ulong frame)
+        {
+            ResetForFrame(frame);
+            if (_items >= _maximumItems || Time.GetTicksUsec() - _started >= 2000)
+                return false;
+            _items++;
+            return true;
+        }
+
+        private void ResetForFrame(ulong frame)
+        {
+            if (frame == _frame) return;
+            _frame = frame;
+            _started = Time.GetTicksUsec();
+            _items = 0;
+        }
+    }
     private sealed class Budget
     {
         private ulong _frame = ulong.MaxValue;
         private int _finalized, _requested, _checked, _vfx;
-        private AndroidResourcePreloader.FrameBudget _time = new(24);
+        private FrameBudget _time = new(24);
 
         internal bool Take(int phase)
         {

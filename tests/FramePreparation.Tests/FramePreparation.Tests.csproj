@@ -5,7 +5,6 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../STS2AndroidPortCompat/Patches/AndroidResourcePreloader.cs" Link="AndroidResourcePreloader.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/ShaderCompatibilityPatches.cs" Link="ShaderCompatibilityPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/CombatVfxPoolPatches.cs" Link="CombatVfxPoolPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/RuntimeAssetLoadingPatches.cs" Link="RuntimeAssetLoadingPatches.cs" />

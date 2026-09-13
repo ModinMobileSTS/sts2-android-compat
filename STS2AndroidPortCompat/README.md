@@ -176,13 +176,14 @@ repository root). Supply `HarmonyReferenceDir` pointing to the packaged runtime
 DLLs; run both the default shape and `-p:LegacyIntent=true`. They exercise actual
 Harmony patches and behavioral transitions without commercial game code.
 
-Compat resource preparation uses `AndroidResourcePreloader` for one native
-threaded request at a time, without sub-thread fan-out. Requests and completed
-retrieval stay on the Godot thread; failed requests are consumed, and never fall
-back to a blocking load. Cache writes, instantiation and tree warmup remain on
-the main thread. Ready/cache-hit batches yield after about 2ms or eight items;
-individual native operations cannot be preempted. Existing preload scope,
-defaults and protection rules are unchanged; total warmup can take longer.
+Startup resource preparation uses the synchronous Godot-thread loading path
+from before the background-loading change. Common/main-menu and learned/gameplay
+warm-cache batches call `ResourceLoader.Load` and yield after every eight visited
+items. VFX scenes load, instantiate and release synchronously, with a frame yield
+between scenes and the existing frame waits for tree warmup. Cache reuse/ignore
+semantics, scope, settings and protection rules are unchanged. A single load may
+still block the frame. There is no shared background-request gate for startup;
+the runtime asynchronous resource queues and shader-node optimization remain.
 
 Shader compatibility uses enabled-only `SceneTree.NodeAdded` notifications and
 one coalesced idle pass after parent/child Ready callbacks, instead of recursive
@@ -209,10 +210,11 @@ inherited, and avoids equal-value setters/auto-size adjustments. Scaling and
 restoration use original base sizes without compounding on reentry; locale font
 fallback remains unchanged.
 
-`tests/FramePreparation.Tests` runs the production preparation, shader, queue,
-effect-pool and font-scaling code with the official Godot 4.5.1 .NET engine and
-packaged Harmony. Synthetic fixtures cover readiness/failures, stale playback,
-bounded retention, cancellation, material isolation and font restoration.
+`tests/FramePreparation.Tests` runs the production shader, queue, effect-pool and
+font-scaling code with the official Godot 4.5.1 .NET engine and packaged Harmony.
+Synthetic fixtures cover runtime resource failures, stale playback, bounded
+retention, cancellation, material isolation and font restoration. The removed
+startup background loader no longer has single-request/retrieval tests.
 Build with `HarmonyReferenceDir`, then
 launch Godot with `--headless --path tests/FramePreparation.Tests`; on Linux set
 `DOTNET_ROOT` to the .NET SDK root and `LD_PRELOAD=libgcc_s.so.1` for MonoMod's

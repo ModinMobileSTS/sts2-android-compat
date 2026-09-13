@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
@@ -10,12 +8,6 @@ using STS2Mobile.Patches;
 
 public partial class Main : Node
 {
-    private static readonly HashSet<string> ActiveRequests = new();
-    private static int _maxRequests;
-    private static int _retrieved;
-    private static bool _retrievedInProgress;
-    private static bool _wrongThread;
-
     public override void _Ready() => Callable.From(() => { _ = RunAsync(); }).CallDeferred();
 
     private async Task RunAsync()
@@ -26,8 +18,6 @@ public partial class Main : Node
             var harmony = new Harmony("sts2.frame-preparation.native-tests");
             // Exercise mobile gating without replacing any rendering/resource API.
             harmony.Patch(AccessTools.Method(typeof(OS), nameof(OS.GetName)), prefix: new HarmonyMethod(typeof(Main), nameof(MobilePlatform)));
-            harmony.Patch(AccessTools.Method(typeof(ResourceLoader), nameof(ResourceLoader.LoadThreadedRequest)), postfix: new HarmonyMethod(typeof(Main), nameof(Requested)));
-            harmony.Patch(AccessTools.Method(typeof(ResourceLoader), nameof(ResourceLoader.LoadThreadedGet)), prefix: new HarmonyMethod(typeof(Main), nameof(Retrieving)));
             ShaderCompatibilityPatches.Apply(harmony);
             CombatVfxPoolPatches.Apply(harmony);
             RuntimeAssetLoadingPatches.Apply(harmony);
@@ -35,11 +25,10 @@ public partial class Main : Node
             AddChild(game);
             await Frame();
             await CheckShaderLifecycle(game);
-            await CheckBackgroundPreparation();
             await CheckVfxReuse();
             await CheckRuntimeBudgets();
             await CheckFontScaling();
-            GD.Print("PASS: native Godot resource readiness/serialization/failure recovery and shader parent-Ready/reparent/removal/isolation/exclusion.");
+            GD.Print("PASS: native Godot shader lifecycle/isolation, VFX reuse, runtime resource budgets/failure recovery and font restoration.");
             GetTree().Quit();
         }
         catch (Exception exception)
@@ -50,20 +39,6 @@ public partial class Main : Node
     }
 
     private static bool MobilePlatform(ref string __result) { __result = "Android"; return false; }
-    private static void Requested(string path, Error __result)
-    {
-        if (__result != Error.Ok) return;
-        ActiveRequests.Add(path);
-        _maxRequests = Math.Max(_maxRequests, ActiveRequests.Count);
-        _wrongThread |= OS.GetThreadCallerId() != OS.GetMainThreadId();
-    }
-    private static void Retrieving(string path)
-    {
-        _retrievedInProgress |= ResourceLoader.LoadThreadedGetStatus(path) == ResourceLoader.ThreadLoadStatus.InProgress;
-        _wrongThread |= OS.GetThreadCallerId() != OS.GetMainThreadId();
-        ActiveRequests.Remove(path);
-        _retrieved++;
-    }
     private async Task Frame() => await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
     private static void Require(bool condition, string message)
     {
@@ -126,42 +101,6 @@ public partial class Main : Node
 
     }
 
-    private async Task CheckBackgroundPreparation()
-    {
-        var scene = new StringBuilder("[gd_scene format=3]\n[node name=\"Root\" type=\"Node\"]\n");
-        for (int i = 0; i < 12000; i++) scene.Append($"[node name=\"Child{i}\" type=\"Node\" parent=\".\"]\n");
-        string[] paths = { "user://frame-a.tscn", "user://frame-b.tscn", "user://frame-invalid.tres" };
-        try
-        {
-            using (var file = FileAccess.Open(paths[0], FileAccess.ModeFlags.Write)) file.StoreString(scene.ToString());
-            using (var file = FileAccess.Open(paths[1], FileAccess.ModeFlags.Write)) file.StoreString(scene.ToString());
-            using (var file = FileAccess.Open(paths[2], FileAccess.ModeFlags.Write)) file.StoreString("[gd_resource broken");
-            ulong before = Engine.GetProcessFrames();
-            var first = AndroidResourcePreloader.LoadAsync(paths[0], ResourceLoader.CacheMode.Ignore);
-            var second = AndroidResourcePreloader.LoadAsync(paths[1], ResourceLoader.CacheMode.Ignore);
-            var loaded = await Task.WhenAll(first, second);
-            foreach (var resource in loaded)
-            {
-                Require(resource is PackedScene packed && packed.GetState().GetNodeCount() == 12001, "Background preparation must deliver complete scene data.");
-                resource.Dispose();
-            }
-            Require(_maxRequests == 1 && ActiveRequests.Count == 0, "Compat preparation must not overlap native requests or leave accepted requests unbalanced.");
-            Require(!_retrievedInProgress && !_wrongThread, "Retrieval must be ready and all API calls must stay on the Godot thread.");
-            GD.Print($"Two real scene loads: responsive_frames={Engine.GetProcessFrames() - before}; max_in_flight={_maxRequests}");
-
-            bool failed = false;
-            int retrievedBeforeFailure = _retrieved;
-            try { await AndroidResourcePreloader.LoadAsync(paths[2], ResourceLoader.CacheMode.Ignore); }
-            catch (InvalidOperationException) { failed = true; }
-            Require(failed && ActiveRequests.Count == 0 && _retrieved > retrievedBeforeFailure, "Failed accepted requests must report failure and be consumed.");
-            using var recovered = await AndroidResourcePreloader.LoadAsync(paths[0], ResourceLoader.CacheMode.Ignore);
-            Require(recovered is PackedScene retry && retry.GetState().GetNodeCount() == 12001, "A failed request must release preparation for the next load.");
-        }
-        finally
-        {
-            foreach (string path in paths) DirAccess.RemoveAbsolute(ProjectSettings.GlobalizePath(path));
-        }
-    }
 }
 
 public partial class MaterialParent : Node

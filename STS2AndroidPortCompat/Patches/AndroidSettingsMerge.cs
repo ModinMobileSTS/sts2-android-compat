@@ -65,6 +65,7 @@ public static class AndroidSettingsMerge
         "android_graphics_preset",
         "android_display_preset",
         "android_in_game_overlay_enabled",
+        "android_floating_mouse_enabled",
         "android_dev_tools_enabled",
         "android_dev_inspector_writable",
     };

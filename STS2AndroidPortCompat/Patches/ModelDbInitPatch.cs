@@ -23,24 +23,24 @@ namespace STS2Mobile.Patches;
 /// Why a two-phase init is needed at all:
 /// Some vanilla models construct other models from their static field
 /// initializers, e.g. <c>BowlbugsNormal.._workerValidCounts</c> calls
-/// <c>ModelDb.Monster&lt;BowlbugEgg&gt;()</c> in its static constructor. PC's
-/// CoreCLR happens to tolerate this ordering, but Android/Mono triggers the
-/// static constructor eagerly and throws KeyNotFound when the referenced model
-/// is not registered yet. Pre-registering uninitialized placeholders for every
-/// model first, then running the constructors in place, lets those cross-model
-/// references resolve regardless of construction order.
+/// <c>ModelDb.Monster&lt;BowlbugEgg&gt;()</c>. PC's CoreCLR tolerates this ordering,
+/// but Android/Mono can eagerly run the static constructor and throw KeyNotFound.
+/// Early vanilla placeholders therefore live in a shadow registry. Closed
+/// vanilla ModelDb lookup methods resolve those objects for Android/Mono reads,
+/// while the canonical content dictionary remains untouched during MOD
+/// initialization. Publishing happens only at ModelDb phase 1, preserving the
+/// pre-init content-registration window used by ModHelper.AddModelToPool.
 ///
-/// Critical ordering invariant (this is what previous fixes got wrong):
+/// Critical ordering invariant:
 /// Mods such as YuWanCard/BaseLib postfix <c>ModelDb.GetEntry</c> to add a
 /// namespace prefix to their content ids (e.g. ENCOUNTER.YUWANCARD-KILLER_ELITE)
 /// and permanently cache the first GetEntry result per type. On PC, every mod's
 /// Harmony PatchAll runs during ModManager.Initialize (ExecuteVeryEarly), which
-/// is strictly before ModelDb.Init (ExecuteEssential). So by the time any id is
-/// computed, the prefix patches are already installed. We therefore must NOT
-/// call ModelDb.GetId/GetEntry for any model type before mod patches are applied.
-/// All id-dependent work happens inside the patched ModelDb.Init, which runs at
-/// the same point in the lifecycle as on PC.
-/// </summary>
+/// is strictly before ModelDb.Init (ExecuteEssential). By the time any MOD id is
+/// computed, the prefix patches are installed. We therefore must NOT call
+/// ModelDb.GetId/GetEntry for any MOD model before mod patches are applied.
+/// All MOD id-dependent work happens inside patched ModelDb.Init phase 1, at the
+/// same lifecycle boundary as PC.
 public static class ModelDbInitPatch
 {
     private static bool _suppressContains;
@@ -52,9 +52,12 @@ public static class ModelDbInitPatch
     private static FieldInfo _modelIdBackingField;
     private static bool _loggedModelIdSeedFailure;
     private static bool _containsPatched;
+    private static bool _modelLookupPatched;
+    private static Harmony _patchHarmony;
     private static bool _abstractModelConstructorPatched;
     private static int _modInitializationContainsShieldDepth;
     private static readonly Dictionary<ModelId, Type> _preRegisteredPlaceholderOwnersById = new();
+    private static readonly Dictionary<ModelId, object> _shadowPlaceholderObjectsById = new();
     private static readonly HashSet<Type> _loggedModInitializationContainsShieldTypes = new();
     private static bool _modelIdSerializationCacheReady;
     private static int _earlyInitIdSkipCount;
@@ -62,6 +65,7 @@ public static class ModelDbInitPatch
 
     public static void Apply(Harmony harmony)
     {
+        _patchHarmony = harmony;
         try
         {
             var initTarget = typeof(ModelDb).GetMethod(nameof(ModelDb.Init), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
@@ -251,6 +255,104 @@ public static class ModelDbInitPatch
         {
             PatchHelper.Log($"FAILED ModelDb.Contains(Type): {exception}");
         }
+    }
+
+    private static void PatchModelLookup(Type[] modelTypes, Harmony harmony)
+    {
+        if (_modelLookupPatched || modelTypes == null || harmony == null)
+            return;
+
+        try
+        {
+            var openGetById = typeof(ModelDb).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .SingleOrDefault(method => method.IsGenericMethodDefinition
+                    && method.Name == "GetById"
+                    && method.GetParameters().Length == 1
+                    && method.GetParameters()[0].ParameterType == typeof(ModelId));
+            var openGetByIdOrNull = typeof(ModelDb).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .SingleOrDefault(method => method.IsGenericMethodDefinition
+                    && method.Name == "GetByIdOrNull"
+                    && method.GetParameters().Length == 1
+                    && method.GetParameters()[0].ParameterType == typeof(ModelId));
+            var getByIdPrefix = typeof(ModelDbInitPatch).GetMethod(nameof(GetByIdPrefix), BindingFlags.Public | BindingFlags.Static);
+            var getByIdOrNullPrefix = typeof(ModelDbInitPatch).GetMethod(nameof(GetByIdOrNullPrefix), BindingFlags.Public | BindingFlags.Static);
+            if (openGetById == null || openGetByIdOrNull == null || getByIdPrefix == null || getByIdOrNullPrefix == null)
+            {
+                PatchHelper.Log("ModelDbInitPatch: shadow model lookup patch skipped; supported generic lookup methods not found.");
+                return;
+            }
+
+            var patched = 0;
+            foreach (var modelType in modelTypes.Where(type => type != null && !type.IsAbstract && typeof(AbstractModel).IsAssignableFrom(type)).Distinct())
+            {
+                harmony.Patch(openGetById.MakeGenericMethod(modelType), prefix: new HarmonyMethod(getByIdPrefix));
+                harmony.Patch(openGetByIdOrNull.MakeGenericMethod(modelType), prefix: new HarmonyMethod(getByIdOrNullPrefix));
+                patched += 2;
+            }
+
+            _modelLookupPatched = true;
+            PatchHelper.Log($"Patched {patched} closed ModelDb generic lookup method(s) to resolve early shadow placeholders without populating canonical content.");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"FAILED ModelDb shadow lookup patch: {exception}");
+        }
+    }
+
+    private static bool TryResolveShadowPlaceholder(ModelId id, ref object result)
+    {
+        lock (_phaseLock)
+        {
+            if (!_shadowPlaceholderObjectsById.TryGetValue(id, out var placeholder))
+                return false;
+            result = placeholder;
+            return true;
+        }
+    }
+
+    public static bool GetByIdPrefix(ModelId __0, ref object __result)
+    {
+        return !TryResolveShadowPlaceholder(__0, ref __result);
+    }
+
+    public static bool GetByIdOrNullPrefix(ModelId __0, ref object __result)
+    {
+        return !TryResolveShadowPlaceholder(__0, ref __result);
+    }
+    public static void PublishShadowPlaceholders()
+    {
+        Dictionary<ModelId, object> shadow;
+        lock (_phaseLock)
+        {
+            if (_shadowPlaceholderObjectsById.Count == 0)
+                return;
+            shadow = new Dictionary<ModelId, object>(_shadowPlaceholderObjectsById);
+            _shadowPlaceholderObjectsById.Clear();
+        }
+
+        var contentByIdField = typeof(ModelDb).GetField("_contentById", BindingFlags.NonPublic | BindingFlags.Static);
+        var contentById = contentByIdField?.GetValue(null) as IDictionary;
+        if (contentById == null)
+        {
+            PatchHelper.Log("ModelDbInitPatch: failed to publish shadow placeholders; canonical content dictionary is unavailable.");
+            lock (_phaseLock)
+            {
+                foreach (var entry in shadow)
+                    _shadowPlaceholderObjectsById[entry.Key] = entry.Value;
+            }
+            return;
+        }
+
+        var published = 0;
+        foreach (var entry in shadow)
+        {
+            if (contentById.Contains(entry.Key))
+                continue;
+            contentById[entry.Key] = entry.Value;
+            published++;
+        }
+
+        PatchHelper.Log($"ModelDbInitPatch: published {published} early shadow placeholder(s) at ModelDb phase 1; canonical content was untouched during MOD initialization.");
     }
 
     public static bool ContainsPrefix(Type __0, ref bool __result)
@@ -537,8 +639,10 @@ public static class ModelDbInitPatch
 
         PatchHelper.Log("Running patched ModelDb.Init() phase 1 pre-registration.");
 
-        // Vanilla placeholders may already be registered from the pre-mod-load pass;
-        // PreRegisterModelPlaceholders skips anything already tracked.
+        // Publish only at the PC-equivalent ModelDb phase boundary. During MOD
+        // initialization the canonical dictionary must remain untouched so APIs
+        // such as ModHelper.AddModelToPool still observe the pre-init state.
+        PublishShadowPlaceholders();
         PreRegisterModelPlaceholders(GetAllModelTypes(), "phase 1 (all model types)");
     }
 
@@ -583,7 +687,8 @@ public static class ModelDbInitPatch
             return;
         }
 
-        PreRegisterModelPlaceholders(vanillaTypes, "early vanilla pre-registration (before LocManager mod hooks)");
+        PatchModelLookup(vanillaTypes, _patchHarmony);
+        PreRegisterModelPlaceholders(vanillaTypes, "early vanilla pre-registration (before LocManager mod hooks)", shadow: true);
     }
 
     private static Type[] GetVanillaModelTypes()
@@ -603,7 +708,7 @@ public static class ModelDbInitPatch
         return (Type[])allSubtypesProperty.GetValue(null) ?? Array.Empty<Type>();
     }
 
-    private static void PreRegisterModelPlaceholders(Type[] rawTypes, string phaseLabel)
+    private static void PreRegisterModelPlaceholders(Type[] rawTypes, string phaseLabel, bool shadow = false)
     {
         var types = (rawTypes ?? Array.Empty<Type>())
             .Where(type => type != null && !type.IsAbstract && typeof(AbstractModel).IsAssignableFrom(type))
@@ -641,10 +746,15 @@ public static class ModelDbInitPatch
                     var id = getIdMethod.Invoke(null, new object[] { type });
                     if (dictionary.Contains(id))
                         continue;
+                    if (shadow && _shadowPlaceholderObjectsById.ContainsKey((ModelId)id))
+                        continue;
 
                     var model = RuntimeHelpers.GetUninitializedObject(type);
                     TrySeedModelId(model, id);
-                    setItemMethod.Invoke(contentById, new[] { id, model });
+                    if (shadow)
+                        _shadowPlaceholderObjectsById[(ModelId)id] = model;
+                    else
+                        setItemMethod.Invoke(contentById, new[] { id, model });
                     _preRegisteredTypeObjects[type] = model;
                     _preRegisteredTypeOrder.Add(type);
                     if (id is ModelId modelId)

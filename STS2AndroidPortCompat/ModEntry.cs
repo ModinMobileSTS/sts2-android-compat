@@ -335,6 +335,11 @@ public static class ModEntry
             if (TryPrepareTempDirectory(candidate, out var prepared))
                 return prepared;
         }
+        // Resolve this fallback lazily: AppPaths caches DataDir process-wide, so the
+        // normal environment and publish-layout candidates must get the first chance.
+        if (TryPrepareTempDirectory(TryGetDataDirTempFallback(), out var dataDirTemp))
+            return dataDirTemp;
+
         return null;
     }
 
@@ -361,6 +366,19 @@ public static class ModEntry
             // Try the next candidate.
         }
         return null;
+    }
+
+    private static string TryGetDataDirTempFallback()
+    {
+        try
+        {
+            var dataDir = STS2Mobile.Android.AppPaths.DataDir;
+            return string.IsNullOrWhiteSpace(dataDir) ? null : Path.Combine(dataDir, "tmp");
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string TryBuildEnvironmentCandidate(string variable, string relativePath)

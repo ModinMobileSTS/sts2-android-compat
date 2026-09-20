@@ -1,15 +1,19 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using HarmonyLib;
-
 namespace STS2Mobile;
 
 public static class HarmonyMethodReferenceImporterShim
 {
     private const string HarmonyId = "com.sts2mobile.monomod.importer";
+    private const int RepairLogLimit = 32;
     private static bool _initialized;
-    private static bool _installed;
+    private static bool _importerInstalled;
+    private static bool _emitterInstalled;
+    private static int _repairLogCount;
 
     public static void Initialize()
     {
@@ -24,13 +28,15 @@ public static class HarmonyMethodReferenceImporterShim
 
             if (!diagnostic.NeedsShim)
             {
-                PatchHelper.Log("[HarmonyImporterShim] MMReflectionImporter method modifier shim not required.");
+                PatchHelper.Log("[HarmonyImporterShim] method modifier repair not required.");
                 return;
             }
 
             Install();
             var after = DiagnoseDamageResultSetterImport();
-            PatchHelper.Log($"[HarmonyImporterShim] DamageResult.set_UnblockedDamage import after shim: {after}");
+            PatchHelper.Log($"[HarmonyImporterShim] DamageResult.set_UnblockedDamage direct import after repair: {after}; importer={_importerInstalled}; emitter={_emitterInstalled}");
+            if (after.NeedsShim && !_emitterInstalled)
+                PatchHelper.Log("[HarmonyImporterShim] ERROR custom modifier repair is not active on either import path; Harmony wrappers may fail on Android/Mono.");
         }
         catch (Exception exception)
         {
@@ -40,43 +46,94 @@ public static class HarmonyMethodReferenceImporterShim
 
     private static void Install()
     {
-        if (_installed)
-            return;
-
-        var importerType = ResolveType("MonoMod.Utils", "MonoMod.Utils.MMReflectionImporter");
+        var harmony = new Harmony(HarmonyId);
         var genericProviderType = ResolveType("Mono.Cecil", "Mono.Cecil.IGenericParameterProvider");
-        if (importerType == null || genericProviderType == null)
+        var importerType = ResolveType("MonoMod.Utils", "MonoMod.Utils.MMReflectionImporter");
+        var importerTarget = genericProviderType == null || importerType == null
+            ? null
+            : importerType.GetMethod(
+                "ImportReference",
+                BindingFlags.Public | BindingFlags.Instance,
+                null,
+                new[] { typeof(MethodBase), genericProviderType },
+                null);
+
+        if (importerTarget == null)
         {
-            PatchHelper.Log($"[HarmonyImporterShim] SKIPPED importer patch: importerType={importerType != null} genericProviderType={genericProviderType != null}");
+            PatchHelper.Log($"[HarmonyImporterShim] SKIPPED MMReflectionImporter method import: importerType={importerType != null} genericProviderType={genericProviderType != null} target={importerTarget != null}");
+        }
+        else
+        {
+            try
+            {
+                var postfix = typeof(HarmonyMethodReferenceImporterShim).GetMethod(nameof(ImportReferencePostfix), BindingFlags.NonPublic | BindingFlags.Static);
+                harmony.Patch(importerTarget, postfix: new HarmonyMethod(postfix));
+                _importerInstalled = true;
+                PatchHelper.Log("[HarmonyImporterShim] Patched MMReflectionImporter.ImportReference(MethodBase, IGenericParameterProvider).");
+            }
+            catch (Exception exception)
+            {
+                PatchHelper.Log($"[HarmonyImporterShim] Failed to patch MMReflectionImporter method import: {exception.GetBaseException()}");
+            }
+        }
+
+        var emitterTarget = ResolveCecilMethodImporter();
+        if (emitterTarget == null)
+        {
+            PatchHelper.Log("[HarmonyImporterShim] SKIPPED CecilILGenerator method import helper: compatible method not found.");
             return;
         }
 
-        var target = importerType.GetMethod(
-            "ImportReference",
-            BindingFlags.Public | BindingFlags.Instance,
-            null,
-            new[] { typeof(MethodBase), genericProviderType },
-            null);
-        if (target == null)
+        try
         {
-            PatchHelper.Log("[HarmonyImporterShim] SKIPPED MMReflectionImporter.ImportReference(MethodBase, IGenericParameterProvider): method not found");
-            return;
+            var postfix = typeof(HarmonyMethodReferenceImporterShim).GetMethod(nameof(CecilMethodImportPostfix), BindingFlags.NonPublic | BindingFlags.Static);
+            harmony.Patch(emitterTarget, postfix: new HarmonyMethod(postfix));
+            _emitterInstalled = true;
+            PatchHelper.Log("[HarmonyImporterShim] Patched CecilILGenerator MethodBase import result.");
         }
-
-        var postfix = typeof(HarmonyMethodReferenceImporterShim).GetMethod(nameof(ImportReferencePostfix), BindingFlags.NonPublic | BindingFlags.Static);
-        new Harmony(HarmonyId).Patch(target, postfix: new HarmonyMethod(postfix));
-        _installed = true;
-        PatchHelper.Log("[HarmonyImporterShim] Patched MonoMod.Utils.MMReflectionImporter.ImportReference(MethodBase, IGenericParameterProvider)");
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"[HarmonyImporterShim] Failed to patch CecilILGenerator method import helper: {exception.GetBaseException()}");
+        }
     }
 
-    private static void ImportReferencePostfix(object __instance, MethodBase method, object context, object __result)
+    private static void ImportReferencePostfix(object __instance, MethodBase __0, object __1, object __result)
+    {
+        TryRepairMethodReference(
+            __0,
+            __result,
+            type => CallImporter(
+                __instance,
+                "ImportReference",
+                new[] { typeof(Type), ResolveType("Mono.Cecil", "Mono.Cecil.IGenericParameterProvider") },
+                type,
+                __result));
+    }
+
+    private static void CecilMethodImportPostfix(MethodBase __0, object __result)
+    {
+        TryRepairMethodReference(__0, __result, type => ImportTypeFromMethodModule(__result, type));
+    }
+
+    private static void TryRepairMethodReference(MethodBase method, object methodReference, Func<Type, object> importType)
     {
         try
         {
-            if (__result == null || !ShouldImportWithModifiers(method))
+            if (methodReference == null || !ShouldImportWithModifiers(method))
                 return;
 
-            ApplyMethodReferenceModifiers(__instance, __result, method, context);
+            if (!ApplyMethodReferenceModifiers(methodReference, method, importType))
+                return;
+
+            var repairNumber = Interlocked.Increment(ref _repairLogCount);
+            if (repairNumber <= RepairLogLimit)
+            {
+                PatchHelper.Log($"[HarmonyImporterShim] Repaired STS2 method reference custom modifiers: {DescribeMethod(method)} -> {GetProperty(methodReference, "FullName")}");
+            }
+            else if (repairNumber == RepairLogLimit + 1)
+            {
+                PatchHelper.Log($"[HarmonyImporterShim] Further repaired method logs suppressed after {RepairLogLimit} entries.");
+            }
         }
         catch (Exception exception)
         {
@@ -92,22 +149,31 @@ public static class HarmonyMethodReferenceImporterShim
         if (method is MethodInfo methodInfo && HasCustomModifiers(methodInfo.ReturnParameter))
             return true;
 
-        var parameters = method.GetParameters();
-        for (var i = 0; i < parameters.Length; i++)
-        {
-            if (HasCustomModifiers(parameters[i]))
-                return true;
-        }
-        return false;
+        return method.GetParameters().Any(HasCustomModifiers);
     }
 
-    private static void ApplyMethodReferenceModifiers(object importer, object methodReference, MethodBase method, object context)
+    private static bool ApplyMethodReferenceModifiers(object methodReference, MethodBase method, Func<Type, object> importType)
     {
-        SetProperty(methodReference, "ReturnType", ImportReturnType(importer, method, methodReference));
+        var changed = false;
+        var methodInfo = method as MethodInfo;
+        var returnParameter = methodInfo?.ReturnParameter;
+        if (returnParameter != null)
+        {
+            var currentReturnType = GetProperty(methodReference, "ReturnType");
+            var repairedReturnType = RepairTypeReference(
+                currentReturnType,
+                returnParameter.GetRequiredCustomModifiers(),
+                returnParameter.GetOptionalCustomModifiers(),
+                importType);
+            if (!ReferenceEquals(currentReturnType, repairedReturnType))
+            {
+                SetProperty(methodReference, "ReturnType", repairedReturnType);
+                changed = true;
+            }
+        }
 
-        var importedParameters = GetProperty(methodReference, "Parameters") as System.Collections.IEnumerable;
-        if (importedParameters == null)
-            return;
+        if (GetProperty(methodReference, "Parameters") is not System.Collections.IEnumerable importedParameters)
+            return changed;
 
         var originalParameters = method.GetParameters();
         var index = 0;
@@ -117,64 +183,123 @@ public static class HarmonyMethodReferenceImporterShim
                 break;
 
             var originalParameter = originalParameters[index++];
-            SetProperty(
-                importedParameter,
-                "ParameterType",
-                ImportTypeWithModifiers(
-                    importer,
-                    originalParameter.ParameterType,
-                    originalParameter.GetRequiredCustomModifiers(),
-                    originalParameter.GetOptionalCustomModifiers(),
-                    methodReference));
+            var currentParameterType = GetProperty(importedParameter, "ParameterType");
+            var repairedParameterType = RepairTypeReference(
+                currentParameterType,
+                originalParameter.GetRequiredCustomModifiers(),
+                originalParameter.GetOptionalCustomModifiers(),
+                importType);
+            if (ReferenceEquals(currentParameterType, repairedParameterType))
+                continue;
+
+            SetProperty(importedParameter, "ParameterType", repairedParameterType);
+            changed = true;
         }
 
-        PatchHelper.Log($"[HarmonyImporterShim] Repaired STS2 method reference custom modifiers: {DescribeMethod(method)} -> {GetProperty(methodReference, "FullName")}");
+        return changed;
     }
 
-    private static object ImportReturnType(object importer, MethodBase method, object context)
-    {
-        var methodInfo = method as MethodInfo;
-        var returnType = methodInfo?.ReturnType ?? typeof(void);
-        var returnParameter = methodInfo?.ReturnParameter;
-        return ImportTypeWithModifiers(
-            importer,
-            returnType,
-            returnParameter?.GetRequiredCustomModifiers(),
-            returnParameter?.GetOptionalCustomModifiers(),
-            context);
-    }
-
-    private static object ImportTypeWithModifiers(
-        object importer,
-        Type type,
+    private static object RepairTypeReference(
+        object currentTypeReference,
         Type[] requiredModifiers,
         Type[] optionalModifiers,
-        object context)
+        Func<Type, object> importType)
     {
-        var genericProviderType = ResolveType("Mono.Cecil", "Mono.Cecil.IGenericParameterProvider");
-        var typeReference = CallImporter(importer, "ImportReference", new[] { typeof(Type), genericProviderType }, type, context);
+        requiredModifiers ??= Type.EmptyTypes;
+        optionalModifiers ??= Type.EmptyTypes;
+        if (currentTypeReference == null || requiredModifiers.Length + optionalModifiers.Length == 0)
+            return currentTypeReference;
 
-        if (requiredModifiers != null)
+        if (HasExpectedModifiers(currentTypeReference, requiredModifiers, optionalModifiers))
+            return currentTypeReference;
+
+        var requiredModifierType = ResolveType("Mono.Cecil", "Mono.Cecil.RequiredModifierType")
+            ?? throw new InvalidOperationException("Mono.Cecil.RequiredModifierType type missing");
+        var optionalModifierType = ResolveType("Mono.Cecil", "Mono.Cecil.OptionalModifierType")
+            ?? throw new InvalidOperationException("Mono.Cecil.OptionalModifierType type missing");
+
+        var repaired = StripModifierTypes(currentTypeReference, requiredModifierType, optionalModifierType);
+        foreach (var modifierType in requiredModifiers)
+            repaired = Activator.CreateInstance(requiredModifierType, importType(modifierType), repaired);
+        foreach (var modifierType in optionalModifiers)
+            repaired = Activator.CreateInstance(optionalModifierType, importType(modifierType), repaired);
+        return repaired;
+    }
+
+    private static bool HasExpectedModifiers(object typeReference, Type[] requiredModifiers, Type[] optionalModifiers)
+    {
+        var requiredModifierType = ResolveType("Mono.Cecil", "Mono.Cecil.RequiredModifierType");
+        var optionalModifierType = ResolveType("Mono.Cecil", "Mono.Cecil.OptionalModifierType");
+        if (requiredModifierType == null || optionalModifierType == null)
+            return false;
+
+        var existingRequired = new List<string>();
+        var existingOptional = new List<string>();
+        var current = typeReference;
+        while (current != null)
         {
-            var requiredModifierType = ResolveType("Mono.Cecil", "Mono.Cecil.RequiredModifierType") ?? throw new InvalidOperationException("Mono.Cecil.RequiredModifierType type missing");
-            for (var i = 0; i < requiredModifiers.Length; i++)
-            {
-                var modifier = CallImporter(importer, "ImportReference", new[] { typeof(Type), genericProviderType }, requiredModifiers[i], context);
-                typeReference = Activator.CreateInstance(requiredModifierType, modifier, typeReference);
-            }
+            if (requiredModifierType.IsInstanceOfType(current))
+                existingRequired.Add(DescribeTypeReference(GetProperty(current, "ModifierType")));
+            else if (optionalModifierType.IsInstanceOfType(current))
+                existingOptional.Add(DescribeTypeReference(GetProperty(current, "ModifierType")));
+            else
+                break;
+            current = GetProperty(current, "ElementType");
         }
 
-        if (optionalModifiers != null)
-        {
-            var optionalModifierType = ResolveType("Mono.Cecil", "Mono.Cecil.OptionalModifierType") ?? throw new InvalidOperationException("Mono.Cecil.OptionalModifierType type missing");
-            for (var i = 0; i < optionalModifiers.Length; i++)
-            {
-                var modifier = CallImporter(importer, "ImportReference", new[] { typeof(Type), genericProviderType }, optionalModifiers[i], context);
-                typeReference = Activator.CreateInstance(optionalModifierType, modifier, typeReference);
-            }
-        }
+        return ModifierNamesMatch(existingRequired, requiredModifiers)
+            && ModifierNamesMatch(existingOptional, optionalModifiers);
+    }
 
-        return typeReference;
+    private static bool ModifierNamesMatch(IReadOnlyCollection<string> existing, IReadOnlyCollection<Type> expected)
+    {
+        if (existing.Count != expected.Count)
+            return false;
+
+        var remaining = new List<string>(existing);
+        foreach (var modifier in expected)
+        {
+            var index = remaining.FindIndex(name => string.Equals(name, modifier.FullName, StringComparison.Ordinal));
+            if (index < 0)
+                return false;
+            remaining.RemoveAt(index);
+        }
+        return remaining.Count == 0;
+    }
+
+    private static object StripModifierTypes(object typeReference, Type requiredModifierType, Type optionalModifierType)
+    {
+        var current = typeReference;
+        while (current != null
+               && (requiredModifierType.IsInstanceOfType(current) || optionalModifierType.IsInstanceOfType(current)))
+        {
+            current = GetProperty(current, "ElementType");
+        }
+        return current;
+    }
+
+    private static string DescribeTypeReference(object typeReference)
+    {
+        return GetProperty(typeReference, "FullName") as string
+            ?? GetProperty(typeReference, "Name") as string
+            ?? typeReference?.ToString()
+            ?? string.Empty;
+    }
+
+    private static object ImportTypeFromMethodModule(object methodReference, Type type)
+    {
+        var module = GetProperty(methodReference, "Module")
+            ?? GetProperty(GetProperty(methodReference, "DeclaringType"), "Module")
+            ?? throw new InvalidOperationException("Imported MethodReference has no ModuleDefinition");
+        var genericProviderType = ResolveType("Mono.Cecil", "Mono.Cecil.IGenericParameterProvider")
+            ?? throw new InvalidOperationException("Mono.Cecil.IGenericParameterProvider type missing");
+        var method = module.GetType().GetMethod(
+            "ImportReference",
+            BindingFlags.Public | BindingFlags.Instance,
+            null,
+            new[] { typeof(Type), genericProviderType },
+            null) ?? throw new MissingMethodException(module.GetType().FullName, "ImportReference(Type, IGenericParameterProvider)");
+        return method.Invoke(module, new[] { (object)type, methodReference });
     }
 
     private static ImportDiagnostic DiagnoseDamageResultSetterImport()
@@ -293,9 +418,23 @@ public static class HarmonyMethodReferenceImporterShim
         instance?.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(instance, value);
     }
 
-    private static object Invoke(object instance, string methodName, params object[] args)
+
+    private static MethodInfo ResolveCecilMethodImporter()
     {
-        return instance?.GetType().GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.Invoke(instance, args);
+        var generatorType = ResolveType("MonoMod.Utils", "MonoMod.Utils.Cil.CecilILGenerator");
+        if (generatorType == null)
+            return null;
+
+        return generatorType
+            .GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(method =>
+            {
+                var parameters = method.GetParameters();
+                return method.Name == "_"
+                    && string.Equals(method.ReturnType.FullName, "Mono.Cecil.MethodReference", StringComparison.Ordinal)
+                    && parameters.Length == 1
+                    && parameters[0].ParameterType == typeof(MethodBase);
+            });
     }
 
     private static Type ResolveType(string assemblyName, string fullName)

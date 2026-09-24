@@ -205,6 +205,16 @@ public static class AndroidFontCoveragePatches
         if (!IsUsableFont(_localeRegularFont))
             return 0;
 
+        if (node is OptionButton optionButton)
+        {
+            PopupMenu optionPopup = optionButton.GetPopup();
+            if (optionPopup != null && GodotObject.IsInstanceValid(optionPopup))
+                ApplyPopupMenuFontFallback(optionPopup);
+        }
+
+        if (node is PopupMenu popupMenu)
+            return ApplyPopupMenuFontFallback(popupMenu);
+
         if (node is RichTextLabel richTextLabel)
         {
             int changed = 0;
@@ -245,6 +255,28 @@ public static class AndroidFontCoveragePatches
         if (!IsUsableFont(fallbackFont) || IsSameFont(currentFont, fallbackFont))
             return 0;
         control.AddThemeFontOverride(themeName, fallbackFont);
+        return 1;
+    }
+
+    private static int ApplyPopupMenuFontFallback(PopupMenu popupMenu)
+    {
+        if (popupMenu == null || !GodotObject.IsInstanceValid(popupMenu))
+            return 0;
+        int changed = ApplyWindowFontFallback(popupMenu, "font", _localeRegularFont);
+        changed += ApplyWindowFontFallback(popupMenu, "font_separator", _localeRegularFont);
+        return changed;
+    }
+
+    private static int ApplyWindowFontFallback(Window window, StringName themeName, Font localeFont)
+    {
+        if (window == null || !IsUsableFont(localeFont))
+            return 0;
+        Font currentFont = window.GetThemeFont(themeName);
+        Font baseFont = UnwrapManagedFallback(currentFont);
+        Font fallbackFont = CreateLocaleFallback(baseFont, localeFont);
+        if (!IsUsableFont(fallbackFont) || IsSameFont(currentFont, fallbackFont))
+            return 0;
+        window.AddThemeFontOverride(themeName, fallbackFont);
         return 1;
     }
 

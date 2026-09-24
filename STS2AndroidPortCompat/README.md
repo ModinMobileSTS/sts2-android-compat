@@ -63,9 +63,11 @@ Startup/mod compatibility notes:
   localization initialization without depending on Android OEM system-font
   discovery. It preserves each control's base font and existing explicit
   fallbacks, then appends the matching STS2 `FontManager` Regular/Bold/Italic
-  resource for the current locale. Existing controls receive one startup scan;
-  later `Label`, `RichTextLabel`, common text/list controls, and `Label3D` nodes
-  stay on the single-node `SceneTree.NodeAdded` path. Do not replace this with a
+  resource for the current locale. It also wraps independent `Window` theme
+  fonts, including `PopupMenu` item/separator fonts and the popup owned by
+  `OptionButton`; this covers dropdown rows that are not `Control` children.
+  Existing controls receive one startup scan; later controls and popup windows
+  use the single-node `SceneTree.NodeAdded` path. Do not replace this with a
   hot `Node.AddChild` recursive scan or package duplicate CJK fonts in the
   compatibility overlay.
 - `DeferredModPatchQueue` covers the adjacent case where a user mod patches an

@@ -161,6 +161,10 @@ Current implementation (`STS2AndroidPortCompat`):
 - Layout scale subscriptions are owned by scene-node lifetime: detach on
   `TreeExiting`, restore on reentry, and ignore repeated Ready registration.
   Old rooms and event layouts no longer need a later scale change to be collectible.
+- Main-menu scaling records neutral button/logo geometry per node. Repeated Ready
+  or scale notifications do not accumulate logo offsets; returning to 100% restores
+  anchors, offsets, grow directions, size flags and logo position without changing
+  the root display-scale owner. Native coverage: `tests/FramePreparation.Tests`.
 - Disabling preload gates only `PreloadManager.LoadAssets`; the outer asset-set
   operation still performs cache and missed-set eviction. The resource disposal
   guard and protected warm-cache scope remain unchanged; no forced GC is added.

@@ -27,6 +27,7 @@ public partial class Main : Node
             await CheckShaderLifecycle(game);
             await CheckVfxReuse();
             await CheckRuntimeBudgets();
+            await CheckMenuLayoutRoundTrip();
             await CheckFontScaling();
             GD.Print("PASS: native Godot shader lifecycle/isolation, VFX reuse, runtime resource budgets/failure recovery and font restoration.");
             GetTree().Quit();

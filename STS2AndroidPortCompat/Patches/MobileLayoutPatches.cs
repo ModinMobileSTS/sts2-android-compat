@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Saves;
@@ -11,6 +12,55 @@ namespace STS2Mobile.Patches;
 // is above 100%.
 public static class MobileLayoutPatches
 {
+    private static readonly ConditionalWeakTable<Control, ButtonLayout> ButtonLayouts = new();
+    private static readonly ConditionalWeakTable<Node2D, LogoLayout> LogoLayouts = new();
+
+    private sealed class ButtonLayout
+    {
+        private readonly float _left, _right, _top, _bottom;
+        private readonly float _offsetLeft, _offsetRight, _offsetTop, _offsetBottom;
+        private readonly Control.GrowDirection _growHorizontal, _growVertical;
+        private readonly Control.SizeFlags _sizeHorizontal, _sizeVertical;
+
+        internal ButtonLayout(Control buttons)
+        {
+            _left = buttons.AnchorLeft;
+            _right = buttons.AnchorRight;
+            _top = buttons.AnchorTop;
+            _bottom = buttons.AnchorBottom;
+            _offsetLeft = buttons.OffsetLeft;
+            _offsetRight = buttons.OffsetRight;
+            _offsetTop = buttons.OffsetTop;
+            _offsetBottom = buttons.OffsetBottom;
+            _growHorizontal = buttons.GrowHorizontal;
+            _growVertical = buttons.GrowVertical;
+            _sizeHorizontal = buttons.SizeFlagsHorizontal;
+            _sizeVertical = buttons.SizeFlagsVertical;
+        }
+
+        internal void Restore(Control buttons)
+        {
+            buttons.AnchorLeft = _left;
+            buttons.AnchorRight = _right;
+            buttons.AnchorTop = _top;
+            buttons.AnchorBottom = _bottom;
+            buttons.OffsetLeft = _offsetLeft;
+            buttons.OffsetRight = _offsetRight;
+            buttons.OffsetTop = _offsetTop;
+            buttons.OffsetBottom = _offsetBottom;
+            buttons.GrowHorizontal = _growHorizontal;
+            buttons.GrowVertical = _growVertical;
+            buttons.SizeFlagsHorizontal = _sizeHorizontal;
+            buttons.SizeFlagsVertical = _sizeVertical;
+        }
+    }
+
+    private sealed class LogoLayout
+    {
+        internal readonly Vector2 Position;
+        internal LogoLayout(Node2D logo) => Position = logo.Position;
+    }
+
     public static void Apply(Harmony harmony)
     {
         var sts2Asm = typeof(MegaCrit.Sts2.Core.Nodes.NGame).Assembly;
@@ -54,16 +104,28 @@ public static class MobileLayoutPatches
         if (SaveManager.Instance.SettingsSave.AspectRatioSetting == AspectRatioSetting.Auto)
             ScaleMainMenuBg(menu, window.GetVisibleRect().Size);
 
-        // Reposition buttons and logo when UI scale is above 100%.
         UiScalePatches.EnsureUiScaleLoaded();
-        if (UiScalePatches.UiScalePercent <= 100)
-            return;
-
-        float viewportWidth = vpSize.X;
-
         var buttons = menu.GetNodeOrNull<Control>("%MainMenuTextButtons");
+        var logo = menu.GetNodeOrNull<Node>("%MainMenuBg")?.GetNodeOrNull<Node2D>("%Logo");
+        if (UiScalePatches.UiScalePercent <= 100)
+        {
+            if (buttons != null && ButtonLayouts.TryGetValue(buttons, out var buttonLayout))
+            {
+                buttonLayout.Restore(buttons);
+                ButtonLayouts.Remove(buttons);
+            }
+            if (logo != null && LogoLayouts.TryGetValue(logo, out var logoLayout))
+            {
+                logo.Position = logoLayout.Position;
+                LogoLayouts.Remove(logo);
+            }
+            return;
+        }
+
+        // Capture neutral geometry once per node, never our previous scaled result.
         if (buttons != null)
         {
+            ButtonLayouts.GetValue(buttons, static node => new ButtonLayout(node));
             buttons.AnchorLeft = 0f;
             buttons.AnchorRight = 0.5f;
             buttons.AnchorTop = 0f;
@@ -78,15 +140,10 @@ public static class MobileLayoutPatches
             buttons.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
         }
 
-        var bg = menu.GetNodeOrNull<Node>("%MainMenuBg");
-        if (bg != null)
+        if (logo != null)
         {
-            var logo = bg.GetNodeOrNull<Node2D>("%Logo");
-            if (logo != null)
-            {
-                var pos = logo.Position;
-                logo.Position = new Vector2(viewportWidth * 0.25f + pos.X, pos.Y);
-            }
+            var baseline = LogoLayouts.GetValue(logo, static node => new LogoLayout(node));
+            logo.Position = new Vector2(baseline.Position.X + vpSize.X * 0.25f, baseline.Position.Y);
         }
 
         PatchHelper.Log("Main menu: repositioned buttons left, logo right");

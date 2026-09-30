@@ -9,6 +9,8 @@
     <Compile Include="../../STS2AndroidPortCompat/Patches/CombatVfxPoolPatches.cs" Link="CombatVfxPoolPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/RuntimeAssetLoadingPatches.cs" Link="RuntimeAssetLoadingPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/AndroidFontSizeScaler.cs" Link="AndroidFontSizeScaler.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/MobileLayoutPatches.cs" Link="MobileLayoutPatches.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/UiScalePatches.cs" Link="UiScalePatches.cs" />
     <Reference Include="0Harmony"><HintPath>$(HarmonyReferenceDir)/0Harmony.dll</HintPath></Reference>
     <Reference Include="MonoMod.Core"><HintPath>$(HarmonyReferenceDir)/MonoMod.Core.dll</HintPath></Reference>
     <Reference Include="MonoMod.Utils"><HintPath>$(HarmonyReferenceDir)/MonoMod.Utils.dll</HintPath></Reference>

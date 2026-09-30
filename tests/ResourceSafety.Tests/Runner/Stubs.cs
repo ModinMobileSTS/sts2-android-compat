@@ -19,6 +19,7 @@ namespace Godot
         private bool _inside;
         private readonly List<Node> _children = new();
         public string SceneFilePath = "";
+        public readonly Dictionary<string, Node> NamedNodes = new();
         public int TreeReads;
         public void Enter() { _inside = true; TreeEntered?.Invoke(); }
         public void Exit() { TreeExiting?.Invoke(); _inside = false; }
@@ -28,16 +29,16 @@ namespace Godot
         public int GetChildCount() => _children.Count;
         public Node GetChild(int index) => _children[index];
         public IEnumerable<Node> GetChildren() => _children;
-        public T GetNodeOrNull<T>(string path) where T : Node => null;
-        public Node GetNodeOrNull(string path) => null;
-        public Node GetNode(string path) => null;
+        public T GetNodeOrNull<T>(string path) where T : Node => GetNodeOrNull(path) as T;
+        public Node GetNodeOrNull(string path) => NamedNodes.TryGetValue(path, out var node) ? node : null;
+        public Node GetNode(string path) => NamedNodes[path];
         public Node GetParent() => null;
         public void Connect(string name, Callable callback) { }
     }
     public class Control : Node
     {
-        public enum GrowDirection { Both }
-        public enum SizeFlags { ShrinkCenter }
+        public enum GrowDirection { Begin, End, Both }
+        public enum SizeFlags { Fill, Expand, ShrinkCenter }
         public Vector2 Scale = Vector2.One, Size = new(1680, 1080), Position, CustomMinimumSize;
         public float AnchorLeft, AnchorRight, AnchorTop, AnchorBottom;
         public float OffsetLeft, OffsetRight, OffsetTop, OffsetBottom;

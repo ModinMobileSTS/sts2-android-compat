@@ -47,6 +47,7 @@ public static class AndroidSettingsMerge
         "max_multiplayer_players",
         "max_multiplayer_enabled",
         "quick_sl_enabled",
+        "android_compat_pack_enabled",
         "android_volume_up_soft_keyboard",
         "android_flip_screen_180",
         "android_screen_rotation_mode",

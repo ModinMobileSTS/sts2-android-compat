@@ -107,6 +107,10 @@ Current implementation (`STS2AndroidPortCompat`):
   `canvas_group_mask_blur.gdshader` card/Ancient-card face shader and does not
   ship the old mobile substitute because it can render Ancient card faces solid
   white.
+- `AndroidSettingsMerge` preserves `android_compat_pack_enabled` when the game
+  serializes settings, including an explicit `false`. A later launch must not
+  silently re-enable compatibility because the PC serializer omitted this key.
+  Consumer round-trip: `tests/AndroidSettingsMerge.Tests`.
 - `TouchInputPatches` adds the first touch-friendly card-play cancellation path
   for releases outside the play zone / untargeted releases.
 - `MobileTapPreviewPatches` adds a first-pass tap-to-lift card preview flow using

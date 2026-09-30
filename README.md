@@ -169,6 +169,11 @@ Current implementation (`STS2AndroidPortCompat`):
   or scale notifications do not accumulate logo offsets; returning to 100% restores
   anchors, offsets, grow directions, size flags and logo position without changing
   the root display-scale owner. Native coverage: `tests/FramePreparation.Tests`.
+- Font scaling distinguishes inherited sizes from existing explicit overrides.
+  Returning to 100% removes only scaler-created overrides and releases the old
+  baseline, so later theme changes and scaling cycles use current font sizes.
+  Existing or externally replaced overrides and auto-size bounds remain owned
+  by their original caller; font fallback selection is unchanged.
 - Disabling preload gates only `PreloadManager.LoadAssets`; the outer asset-set
   operation still performs cache and missed-set eviction. The resource disposal
   guard and protected warm-cache scope remain unchanged; no forced GC is added.

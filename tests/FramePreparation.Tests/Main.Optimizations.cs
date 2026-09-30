@@ -188,9 +188,8 @@ public partial class Main
         root.AddChild(inherited); root.AddChild(explicitSize);
         AndroidFontSizeScaler.ApplyRecursive(root, 1f);
         Require(!inherited.HasThemeFontSizeOverride("font_size"), "Default scale must preserve theme inheritance.");
-        theme.SetFontSize("font_size", "Label", 22);
         AndroidFontSizeScaler.ApplyRecursive(root, 1.5f);
-        Require(inherited.GetThemeFontSize("font_size") == 33 && explicitSize.GetThemeFontSize("font_size") == 39,
+        Require(inherited.GetThemeFontSize("font_size") == 30 && explicitSize.GetThemeFontSize("font_size") == 39,
             "Scaling must use inherited and explicit base sizes, not already-scaled values.");
         await Frame();
         int changed = 0;
@@ -202,8 +201,38 @@ public partial class Main
         AndroidFontSizeScaler.Apply(explicitSize, 1.5f);
         Require(explicitSize.GetThemeFontSize("font_size") == 39, "Reparenting must not compound the font multiplier.");
         AndroidFontSizeScaler.ApplyRecursive(root, 1f);
-        Require(inherited.GetThemeFontSize("font_size") == 22 && explicitSize.GetThemeFontSize("font_size") == 26,
-            "Returning to 100% must restore the unscaled sizes.");
+        Require(!inherited.HasThemeFontSizeOverride("font_size") && inherited.GetThemeFontSize("font_size") == 20,
+            "Returning to 100% must remove the scaler's override and restore theme inheritance.");
+        Require(explicitSize.HasThemeFontSizeOverride("font_size") && explicitSize.GetThemeFontSize("font_size") == 26,
+            "Returning to 100% must retain the caller's explicit override.");
+        theme.SetFontSize("font_size", "Label", 24);
+        await Frame();
+        Require(inherited.GetThemeFontSize("font_size") == 24, "Restored labels must inherit theme changes.");
+        AndroidFontSizeScaler.ApplyRecursive(root, 1.5f);
+        Require(inherited.GetThemeFontSize("font_size") == 36, "A new scaling cycle must use the current theme, not stale base metadata.");
+        AndroidFontSizeScaler.ApplyRecursive(root, 2f);
+        AndroidFontSizeScaler.ApplyRecursive(root, 1.5f);
+        Require(inherited.GetThemeFontSize("font_size") == 36 && explicitSize.GetThemeFontSize("font_size") == 39,
+            "Changing a non-default multiplier must not use the scaler's own override as a new baseline.");
+
+        var duplicate = (Label)inherited.Duplicate();
+        root.AddChild(duplicate);
+        AndroidFontSizeScaler.Apply(duplicate, 1f);
+        Require(!duplicate.HasThemeFontSizeOverride("font_size") && duplicate.GetThemeFontSize("font_size") == 24
+            && inherited.GetThemeFontSize("font_size") == 36, "Duplicate nodes must restore independent theme inheritance.");
+
+        explicitSize.AddThemeFontSizeOverride("font_size", 28);
+        AndroidFontSizeScaler.Apply(explicitSize, 1.5f);
+        Require(explicitSize.GetThemeFontSize("font_size") == 42, "A caller replacing an active override must establish a new baseline.");
+        AndroidFontSizeScaler.ApplyRecursive(root, 1f);
+        Require(explicitSize.HasThemeFontSizeOverride("font_size") && explicitSize.GetThemeFontSize("font_size") == 28,
+            "Restoration must preserve the caller's replacement, not reclaim the old baseline.");
+        explicitSize.RemoveThemeFontSizeOverride("font_size");
+        explicitSize.Theme = theme;
+        AndroidFontSizeScaler.Apply(explicitSize, 1.5f);
+        Require(explicitSize.GetThemeFontSize("font_size") == 36, "Removing an explicit override must permit inheritance on the next cycle.");
+        AndroidFontSizeScaler.Apply(explicitSize, 1f);
+        Require(!explicitSize.HasThemeFontSizeOverride("font_size"), "Former explicit overrides must not be resurrected.");
 
         var auto = new MegaLabel();
         var rich = new MegaRichTextLabel();
@@ -216,6 +245,15 @@ public partial class Main
         AndroidFontSizeScaler.ApplyRecursive(root, 1f);
         Require(auto.GetThemeFontSize("font_size") == 20 && rich.GetThemeFontSize("normal_font_size") == 20,
             "Auto-size labels must also restore their original bounds.");
+        auto.MinFontSize = rich.MinFontSize = 12;
+        auto.MaxFontSize = rich.MaxFontSize = 24;
+        AndroidFontSizeScaler.ApplyRecursive(root, 1.5f);
+        Require(auto.MinFontSize == 18 && rich.MinFontSize == 18
+            && auto.GetThemeFontSize("font_size") == 36 && rich.GetThemeFontSize("normal_font_size") == 36,
+            "A new autosize cycle must use current bounds after restoration released its previous baseline.");
+        AndroidFontSizeScaler.ApplyRecursive(root, 1f);
+        Require(auto.MinFontSize == 12 && rich.MinFontSize == 12 && auto.MaxFontSize == 24 && rich.MaxFontSize == 24,
+            "Autosize must restore the updated unscaled bounds.");
         root.QueueFree();
         await Frame();
         GD.Print("PASS: font theme inheritance, non-compounding scale, idempotence, reparent and autosize restoration.");

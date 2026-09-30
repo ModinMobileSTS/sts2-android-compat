@@ -15,6 +15,18 @@ internal static class AndroidFontSizeScaler
         "__android_port_base_size__bold_font_size", "__android_port_base_size__italics_font_size",
         "__android_port_base_size__bold_italics_font_size", "__android_port_base_size__mono_font_size",
     };
+    private static readonly StringName[] OverrideKeys =
+    {
+        "__android_port_had_override__font_size", "__android_port_had_override__normal_font_size",
+        "__android_port_had_override__bold_font_size", "__android_port_had_override__italics_font_size",
+        "__android_port_had_override__bold_italics_font_size", "__android_port_had_override__mono_font_size",
+    };
+    private static readonly StringName[] AppliedKeys =
+    {
+        "__android_port_applied_size__font_size", "__android_port_applied_size__normal_font_size",
+        "__android_port_applied_size__bold_font_size", "__android_port_applied_size__italics_font_size",
+        "__android_port_applied_size__bold_italics_font_size", "__android_port_applied_size__mono_font_size",
+    };
     private static readonly StringName ScaledKey = "__android_port_font_sizes_scaled";
     private static readonly StringName MinKey = "__android_port_base_min_font_size";
     private static readonly StringName MaxKey = "__android_port_base_max_font_size";
@@ -49,45 +61,86 @@ internal static class AndroidFontSizeScaler
         for (int i = 0; i < Names.Length; i++)
         {
             var name = Names[i];
-            int baseSize;
-            if (control.HasMeta(BaseKeys[i]))
-                baseSize = ReadInt(control.GetMeta(BaseKeys[i]));
-            else
+            bool explicitSize = control.HasThemeFontSizeOverride(name);
+            bool hasBaseline = control.HasMeta(BaseKeys[i]);
+            if (!hasBaseline && !explicitSize && (scale == 1f || !ShouldSeed(control, i))) continue;
+            int current = control.GetThemeFontSize(name);
+            if (hasBaseline && (!explicitSize || current != ReadInt(control.GetMeta(AppliedKeys[i]))))
             {
-                bool explicitSize = control.HasThemeFontSizeOverride(name);
-                if (explicitSize) baseSize = control.GetThemeFontSize(name);
-                else if (ShouldSeed(control, i))
-                {
-                    var themeType = control.GetClass();
-                    baseSize = string.IsNullOrWhiteSpace(themeType) ? control.GetThemeFontSize(name) : control.GetThemeFontSize(name, themeType);
-                    if (baseSize <= 0) baseSize = control.GetThemeFontSize(name);
-                }
-                else continue;
-                if (baseSize > 0) control.SetMeta(BaseKeys[i], baseSize);
+                // An external writer replaced/removed our override. Its value is the new baseline.
+                ClearBaseline(control, i);
+                hasBaseline = false;
             }
+            if (scale == 1f)
+            {
+                if (!hasBaseline) continue;
+                if (control.GetMeta(OverrideKeys[i]).AsBool())
+                {
+                    int original = ReadInt(control.GetMeta(BaseKeys[i]));
+                    if (current != original) control.AddThemeFontSizeOverride(name, original);
+                }
+                else control.RemoveThemeFontSizeOverride(name);
+                ClearBaseline(control, i);
+                continue;
+            }
+
+            int baseSize;
+            if (hasBaseline) baseSize = ReadInt(control.GetMeta(BaseKeys[i]));
+            else if (explicitSize) baseSize = current;
+            else if (ShouldSeed(control, i))
+            {
+                var themeType = control.GetClass();
+                baseSize = string.IsNullOrWhiteSpace(themeType) ? current : control.GetThemeFontSize(name, themeType);
+                if (baseSize <= 0) baseSize = current;
+            }
+            else continue;
             if (baseSize <= 0) continue;
-            tracked = true;
             int scaled = Mathf.Max(1, Mathf.RoundToInt(baseSize * scale));
-            if (control.GetThemeFontSize(name) != scaled)
-                control.AddThemeFontSizeOverride(name, scaled);
+            if (!explicitSize && current == scaled) continue;
+            if (!hasBaseline)
+            {
+                control.SetMeta(BaseKeys[i], baseSize);
+                control.SetMeta(OverrideKeys[i], explicitSize);
+            }
+            if (current != scaled) control.AddThemeFontSizeOverride(name, scaled);
+            if (!control.HasMeta(AppliedKeys[i]) || ReadInt(control.GetMeta(AppliedKeys[i])) != scaled)
+                control.SetMeta(AppliedKeys[i], scaled);
+            tracked = true;
         }
-        if (scale == 1f) control.RemoveMeta(ScaledKey);
-        else if (tracked && !control.HasMeta(ScaledKey)) control.SetMeta(ScaledKey, true);
+        if (!tracked)
+        {
+            if (control.HasMeta(ScaledKey)) control.RemoveMeta(ScaledKey);
+        }
+        else if (!control.HasMeta(ScaledKey)) control.SetMeta(ScaledKey, true);
     }
 
     private static bool ShouldSeed(Control control, int name) => name == 0
         ? control is Label or Button or LineEdit or TextEdit
         : control is RichTextLabel;
 
+    private static void ClearBaseline(Control control, int index)
+    {
+        control.RemoveMeta(BaseKeys[index]);
+        control.RemoveMeta(OverrideKeys[index]);
+        control.RemoveMeta(AppliedKeys[index]);
+    }
+
     private static void ApplyAutoSize(MegaLabel label, float scale)
     {
         if (!label.HasThemeFontOverride(FontKey) || scale == 1f && !label.HasMeta(MinKey)) return;
         int min = Mathf.Max(1, Mathf.RoundToInt(GetOrStore(label, MinKey, label.MinFontSize) * scale));
         int max = Mathf.Max(min, Mathf.RoundToInt(GetOrStore(label, MaxKey, label.MaxFontSize) * scale));
-        if (label.MinFontSize == min && label.MaxFontSize == max) return;
-        label.MinFontSize = min;
-        label.MaxFontSize = max;
-        Adjust(label, false);
+        if (label.MinFontSize != min || label.MaxFontSize != max)
+        {
+            label.MinFontSize = min;
+            label.MaxFontSize = max;
+            Adjust(label, false);
+        }
+        if (scale == 1f)
+        {
+            label.RemoveMeta(MinKey);
+            label.RemoveMeta(MaxKey);
+        }
     }
 
     private static void ApplyAutoSize(MegaRichTextLabel label, float scale)
@@ -95,10 +148,17 @@ internal static class AndroidFontSizeScaler
         if (!label.HasThemeFontOverride(NormalFontKey) || scale == 1f && !label.HasMeta(MinKey)) return;
         int min = Mathf.Max(1, Mathf.RoundToInt(GetOrStore(label, MinKey, label.MinFontSize) * scale));
         int max = Mathf.Max(min, Mathf.RoundToInt(GetOrStore(label, MaxKey, label.MaxFontSize) * scale));
-        if (label.MinFontSize == min && label.MaxFontSize == max) return;
-        label.MinFontSize = min;
-        label.MaxFontSize = max;
-        Adjust(label, true);
+        if (label.MinFontSize != min || label.MaxFontSize != max)
+        {
+            label.MinFontSize = min;
+            label.MaxFontSize = max;
+            Adjust(label, true);
+        }
+        if (scale == 1f)
+        {
+            label.RemoveMeta(MinKey);
+            label.RemoveMeta(MaxKey);
+        }
     }
 
     private static bool HasSourcePortScaling()

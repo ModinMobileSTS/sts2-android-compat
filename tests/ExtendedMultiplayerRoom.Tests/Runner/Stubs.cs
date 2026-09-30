@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
+#if !NATIVE_GODOT
 namespace Godot
 {
     public class GodotObject
@@ -54,6 +55,11 @@ namespace Godot
             if (child != null)
                 _children.Add(child);
         }
+
+        public void RemoveChild(Node child) => _children.Remove(child);
+
+        public T GetNodeOrNull<T>(string path) where T : Node =>
+            _children.FirstOrDefault(child => child.Name == path) as T;
 
         public T GetNode<T>(string path) where T : Node
         {
@@ -121,6 +127,7 @@ namespace STS2Mobile
         public static void Log(string message) => Console.WriteLine(message);
     }
 }
+#endif
 
 namespace MegaCrit.Sts2.Core.Runs
 {
@@ -154,6 +161,7 @@ namespace MegaCrit.Sts2.Core.Entities.Players
     public sealed class Player
     {
         public IRunState RunState { get; set; }
+        public List<object> AwardedRelics { get; } = new();
     }
 }
 
@@ -206,26 +214,40 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic
     using Godot;
     using MegaCrit.Sts2.Core.Entities.Players;
     using MegaCrit.Sts2.Core.Runs;
+    using MegaCrit.Sts2.Core.Context;
+    using MegaCrit.Sts2.Core.Multiplayer.Game;
 
-    public class NTreasureRoomRelicHolder : Control
+    public partial class NTreasureRoomRelicHolder : Control
     {
         public NTreasureRoomRelicHolder()
         {
             Size = new Vector2(136f, 136f);
+#if NATIVE_GODOT
+            FocusMode = FocusModeEnum.All;
+#endif
         }
+        public object Relic { get; set; }
     }
 
-    public class NTreasureRoomRelicCollection : Control
+    public partial class NTreasureRoomRelicCollection : Control
     {
         private readonly List<NTreasureRoomRelicHolder> _multiplayerHolders = new List<NTreasureRoomRelicHolder>();
         private readonly List<NTreasureRoomRelicHolder> _holdersInUse = new List<NTreasureRoomRelicHolder>();
-        private readonly Control _relicContainer = new Control { Name = "Container", Size = new Vector2(900f, 580f) };
+#if !LEGACY_TREASURE_SHAPE
+        private readonly Control _relicContainer;
+#endif
         private readonly IRunState _runState;
+
+        public NTreasureRoomRelicCollection() : this(new SyntheticRunState()) { }
 
         public NTreasureRoomRelicCollection(IRunState runState)
         {
             _runState = runState;
-            AddChild(_relicContainer);
+            var container = new Control { Name = "Container", Size = new Vector2(900f, 580f) };
+#if !LEGACY_TREASURE_SHAPE
+            _relicContainer = container;
+#endif
+            AddChild(container);
             for (var index = 0; index < 4; index++)
             {
                 var holder = new NTreasureRoomRelicHolder
@@ -236,28 +258,47 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic
                     AnchorRight = 0.5f,
                     AnchorBottom = 0.5f
                 };
-                _relicContainer.AddChild(holder);
+                container.AddChild(holder);
                 _multiplayerHolders.Add(holder);
             }
         }
 
         public IReadOnlyList<NTreasureRoomRelicHolder> MultiplayerHolders => _multiplayerHolders;
         public IReadOnlyList<NTreasureRoomRelicHolder> HoldersInUse => _holdersInUse;
-        public Control DefaultFocusedControl => null;
-        public void InitializeRelics() { }
+        public Control DefaultFocusedControl => _holdersInUse[_runState.GetPlayerSlotIndex(LocalContext.GetMe(_runState.Players))];
+        public void InitializeRelics() => SimulateVanillaInitializeRelics(RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics.Count);
+        public bool AwardsFinished { get; private set; }
+        public List<object> ProcessedRelics { get; } = new();
+
+        // Synthetic award consumer: every authoritative result, including a skip, needs its holder.
+        public void CompleteAwards(IEnumerable<(object Relic, Player Recipient)> results)
+        {
+            foreach (var result in results)
+            {
+                var holder = _holdersInUse.First(candidate => ReferenceEquals(candidate.Relic, result.Relic));
+                if (result.Recipient != null) result.Recipient.AwardedRelics.Add(holder.Relic);
+                ProcessedRelics.Add(holder.Relic);
+            }
+            AwardsFinished = true;
+        }
 
         public void SimulateVanillaInitializeRelics(int visibleCount)
         {
+            _holdersInUse.Clear();
+            var relics = RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics;
             foreach (var holder in _multiplayerHolders)
             {
                 holder.Visible = _holdersInUse.Count < visibleCount;
+                holder.Relic = holder.Visible ? relics[_holdersInUse.Count] : null;
                 _holdersInUse.Add(holder);
             }
         }
     }
 
-    public class NHandImage : Control
+    public partial class NHandImage : Control
     {
+        public NHandImage() : this(null, 0) { }
+
         public NHandImage(Player player, int index)
         {
             Player = player;
@@ -266,7 +307,11 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic
 
         public Player Player { get; }
         public int Index { get; }
+#if NATIVE_GODOT
+        public override void _Ready() { }
+#else
         public void _Ready() { }
+#endif
     }
 }
 
@@ -275,11 +320,13 @@ namespace MegaCrit.Sts2.Core.Nodes.Rooms
     using Godot;
     using MegaCrit.Sts2.Core.Runs;
 
-    public class NRestSiteRoom : Control
+    public partial class NRestSiteRoom : Control
     {
         private readonly List<Control> _characterContainers = new List<Control>();
         private readonly IRunState _runState;
         private readonly Control _background = new Control { Name = "BgContainer" };
+
+        public NRestSiteRoom() : this(new SyntheticRunState()) { }
 
         public NRestSiteRoom(IRunState runState)
         {
@@ -300,7 +347,11 @@ namespace MegaCrit.Sts2.Core.Nodes.Rooms
         }
 
         public IReadOnlyList<Control> CharacterContainers => _characterContainers;
+#if NATIVE_GODOT
+        public override void _Ready() { }
+#else
         public void _Ready() { }
+#endif
 
         public void SimulateVanillaFixedContainerAppend()
         {

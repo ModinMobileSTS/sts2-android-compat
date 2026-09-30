@@ -15,13 +15,69 @@ internal static class Program
     private static int Main()
     {
         TestVanillaCapacityRemainsUnchanged();
-        TestFivePlayerTreasureRoom();
-        TestTreasureFocusWhenRelicsAreSuppressed();
+        RunTreasureScenarios();
         TestExtendedTreasureHands();
         TestRestSiteContainers(5);
         TestRestSiteContainers(17);
         Console.WriteLine("Extended multiplayer room regression test passed.");
         return 0;
+    }
+
+    internal static void RunTreasureScenarios()
+    {
+        TestFivePlayerTreasureRoom();
+        TestTreasureFocusWhenRelicsAreSuppressed();
+        TestFocusWithoutContainer();
+        TestAwardCompletion(4, 4, false);
+        TestAwardCompletion(5, 5, false);
+        TestAwardCompletion(5, 5, true);
+        TestAwardCompletion(5, 4, true);
+        TestAwardCompletion(5, 0, false);
+#if NATIVE_GODOT
+#if LEGACY_TREASURE_SHAPE
+        GD.Print("PASS: native treasure legacy Container shape; five-player focus/awards, contest/skip/suppression, unchanged four-player flow.");
+#else
+        GD.Print("PASS: native treasure field-backed Container shape; five-player focus/awards, contest/skip/suppression, unchanged four-player flow.");
+#endif
+#endif
+    }
+
+    private static NTreasureRoomRelicCollection CreateCollection(IRunState state)
+    {
+        var collection = new NTreasureRoomRelicCollection(state);
+#if NATIVE_GODOT
+        ((SceneTree)Engine.GetMainLoop()).Root.AddChild(collection);
+#endif
+        return collection;
+    }
+
+    private static void Release(Node node)
+    {
+#if NATIVE_GODOT
+        node.Free();
+#endif
+    }
+
+    private static void InitializeCollection(NTreasureRoomRelicCollection collection)
+    {
+#if !NATIVE_GODOT
+        ExtendedMultiplayerRoomPatches.TreasureInitializePrefix(collection);
+#endif
+        collection.InitializeRelics();
+#if !NATIVE_GODOT
+        ExtendedMultiplayerRoomPatches.TreasureInitializePostfix(collection);
+#endif
+    }
+
+    private static Control GetFocus(NTreasureRoomRelicCollection collection)
+    {
+#if NATIVE_GODOT
+        return collection.DefaultFocusedControl;
+#else
+        Control result = null;
+        return ExtendedMultiplayerRoomPatches.TreasureDefaultFocusPrefix(collection, ref result)
+            ? collection.DefaultFocusedControl : result;
+#endif
     }
 
     private static void TestVanillaCapacityRemainsUnchanged()
@@ -57,26 +113,31 @@ internal static class Program
             TreasureRoomRelicSynchronizer = new TreasureRoomRelicSynchronizer(5)
         };
 
-        var collection = new NTreasureRoomRelicCollection(runState);
-        ExtendedMultiplayerRoomPatches.TreasureInitializePrefix(collection);
-        Assert(collection.MultiplayerHolders.Count == 5,
-            "five backend relics must create a fifth client holder");
+        var collection = CreateCollection(runState);
+        try
+        {
+            InitializeCollection(collection);
+            Assert(collection.MultiplayerHolders.Count == 5,
+                "five backend relics must create a fifth client holder");
+            Assert(collection.HoldersInUse.Count == 5, "all five holders must enter vanilla award processing");
+            Assert(collection.HoldersInUse.All(IsFinite), "all five holder layouts must remain finite");
+            Assert(collection.HoldersInUse.Select(holder => holder.Position).Distinct().Count() == 5,
+                "five holders must occupy distinct positions");
+            Assert(collection.HoldersInUse.All(holder => holder.Scale.X > 0f && holder.Scale.X <= 1f),
+                "extended holder scale must remain visible and bounded");
 
-        collection.SimulateVanillaInitializeRelics(5);
-        ExtendedMultiplayerRoomPatches.TreasureInitializePostfix(collection);
-
-        Assert(collection.HoldersInUse.Count == 5, "all five holders must enter vanilla award processing");
-        Assert(collection.HoldersInUse.All(IsFinite), "all five holder layouts must remain finite");
-        Assert(collection.HoldersInUse.Select(holder => holder.Position).Distinct().Count() == 5,
-            "five holders must occupy distinct positions");
-        Assert(collection.HoldersInUse.All(holder => holder.Scale.X > 0f && holder.Scale.X <= 1f),
-            "extended holder scale must remain visible and bounded");
-
-        Control focused = null;
-        var runOriginal = ExtendedMultiplayerRoomPatches.TreasureDefaultFocusPrefix(collection, ref focused);
-        Assert(!runOriginal, "compat focus prefix must replace the unsafe vanilla getter");
-        Assert(ReferenceEquals(focused, collection.HoldersInUse[4]),
-            "the fifth player must focus the fifth relic when it exists");
+            Control focused = GetFocus(collection);
+            Assert(ReferenceEquals(focused, collection.HoldersInUse[4]),
+                "the fifth player must focus the fifth relic when it exists");
+#if NATIVE_GODOT
+            focused.GrabFocus();
+            Assert(focused.HasFocus(), "the returned fifth holder must accept native Godot focus");
+#endif
+            var originalHolders = collection.MultiplayerHolders.ToArray();
+            InitializeCollection(collection);
+            Assert(collection.MultiplayerHolders.SequenceEqual(originalHolders), "reinitialization must reuse holders rather than append duplicates");
+        }
+        finally { Release(collection); }
     }
 
     private static void TestTreasureFocusWhenRelicsAreSuppressed()
@@ -88,12 +149,70 @@ internal static class Program
             TreasureRoomRelicSynchronizer = new TreasureRoomRelicSynchronizer(4)
         };
 
-        var collection = new NTreasureRoomRelicCollection(runState);
-        collection.SimulateVanillaInitializeRelics(4);
-        Control focused = null;
-        ExtendedMultiplayerRoomPatches.TreasureDefaultFocusPrefix(collection, ref focused);
-        Assert(ReferenceEquals(focused, collection.HoldersInUse[0]),
-            "a player without a matching relic slot must safely wrap to a visible holder");
+        var collection = CreateCollection(runState);
+        try
+        {
+            InitializeCollection(collection);
+            Assert(ReferenceEquals(GetFocus(collection), collection.HoldersInUse[0]),
+                "a player without a matching relic slot must safely wrap to a visible holder");
+        }
+        finally { Release(collection); }
+    }
+
+    private static void TestFocusWithoutContainer()
+    {
+        var runState = CreateRunState(5);
+        LocalContext.LocalPlayer = runState.Players[4];
+        RunManager.Instance = new RunManager { TreasureRoomRelicSynchronizer = new TreasureRoomRelicSynchronizer(4) };
+        var collection = CreateCollection(runState);
+        var container = collection.GetNode<Control>("Container");
+        try
+        {
+            InitializeCollection(collection);
+            collection.RemoveChild(container);
+            Assert(ReferenceEquals(GetFocus(collection), collection.HoldersInUse[0]),
+                "focus safety must not depend on resolving the layout container");
+        }
+        finally
+        {
+            collection.AddChild(container);
+            Release(collection);
+        }
+    }
+
+    private static void TestAwardCompletion(int playerCount, int relicCount, bool contestAndSkip)
+    {
+        var runState = CreateRunState(playerCount);
+        LocalContext.LocalPlayer = runState.Players[playerCount - 1];
+        var synchronizer = new TreasureRoomRelicSynchronizer(relicCount);
+        RunManager.Instance = new RunManager { TreasureRoomRelicSynchronizer = synchronizer };
+        var collection = CreateCollection(runState);
+        var vanillaHolders = collection.MultiplayerHolders.ToArray();
+        var vanillaLayout = vanillaHolders.Select(holder => (holder.Position, holder.Scale, holder.AnchorLeft, holder.AnchorTop, holder.AnchorRight, holder.AnchorBottom)).ToArray();
+        try
+        {
+            InitializeCollection(collection);
+            if (playerCount == 4)
+                Assert(collection.MultiplayerHolders.SequenceEqual(vanillaHolders)
+                    && vanillaLayout.SequenceEqual(vanillaHolders.Select(holder => (holder.Position, holder.Scale, holder.AnchorLeft, holder.AnchorTop, holder.AnchorRight, holder.AnchorBottom))),
+                    "four-player initialization must retain the original holders and geometry");
+            if (relicCount == 0)
+                Assert(GetFocus(collection) == null, "no visible relics must yield no default focus");
+
+            // Already-decided backend results; the client must neither reroll nor reassign them.
+            var results = synchronizer.CurrentRelics.Select((relic, index) => (
+                Relic: relic,
+                Recipient: contestAndSkip && index == 1 ? null
+                    : contestAndSkip && (index == 0 || index == 2) ? runState.Players[playerCount - 1]
+                    : runState.Players[index % playerCount])).ToArray();
+            collection.CompleteAwards(results);
+            Assert(collection.AwardsFinished && collection.ProcessedRelics.SequenceEqual(synchronizer.CurrentRelics),
+                "every generated relic, including a skipped relic, must find a holder and finish award processing");
+            foreach (var player in runState.Players)
+                Assert(player.AwardedRelics.SequenceEqual(results.Where(result => ReferenceEquals(result.Recipient, player)).Select(result => result.Relic)),
+                    "UI expansion must preserve the backend's exact award ownership");
+        }
+        finally { Release(collection); }
     }
 
     private static void TestExtendedTreasureHands()

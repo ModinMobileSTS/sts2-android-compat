@@ -44,7 +44,6 @@ public static class ExtendedMultiplayerRoomPatches
     {
         if (TreasureMultiplayerHoldersField != null
             && TreasureHoldersInUseField != null
-            && TreasureRelicContainerField != null
             && TreasureRunStateField != null)
         {
             PatchHelper.Patch(
@@ -53,6 +52,15 @@ public static class ExtendedMultiplayerRoomPatches
                 nameof(NTreasureRoomRelicCollection.InitializeRelics),
                 prefix: PatchHelper.Method(typeof(ExtendedMultiplayerRoomPatches), nameof(TreasureInitializePrefix)),
                 postfix: PatchHelper.Method(typeof(ExtendedMultiplayerRoomPatches), nameof(TreasureInitializePostfix)));
+        }
+        else
+        {
+            PatchHelper.Log("Extended multiplayer treasure layout skipped: required fields were not found");
+        }
+
+        // Focus safety does not require the container or the expandable holder list.
+        if (TreasureHoldersInUseField != null && TreasureRunStateField != null)
+        {
             PatchHelper.PatchGetter(
                 harmony,
                 typeof(NTreasureRoomRelicCollection),
@@ -61,7 +69,7 @@ public static class ExtendedMultiplayerRoomPatches
         }
         else
         {
-            PatchHelper.Log("Extended multiplayer treasure patch skipped: required fields were not found");
+            PatchHelper.Log("Extended multiplayer treasure focus skipped: required fields were not found");
         }
 
         PatchHelper.Patch(
@@ -96,7 +104,7 @@ public static class ExtendedMultiplayerRoomPatches
             var currentRelics = RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics;
             var requiredCount = currentRelics?.Count ?? 0;
             var holders = GetTreasureMultiplayerHolders(__instance);
-            var container = TreasureRelicContainerField.GetValue(__instance) as Control;
+            var container = GetTreasureRelicContainer(__instance);
             if (requiredCount <= holders.Count || container == null)
                 return;
 
@@ -131,7 +139,7 @@ public static class ExtendedMultiplayerRoomPatches
             if ((currentRelics?.Count ?? 0) <= VanillaPlayerCapacity)
                 return;
 
-            var container = TreasureRelicContainerField.GetValue(__instance) as Control;
+            var container = GetTreasureRelicContainer(__instance);
             var holders = GetTreasureHoldersInUse(__instance)
                 .Where(holder => holder != null && GodotObject.IsInstanceValid(holder) && holder.Visible)
                 .ToList();
@@ -270,6 +278,13 @@ public static class ExtendedMultiplayerRoomPatches
         {
             PatchHelper.Log($"Extended multiplayer rest-site cleanup failed: {exception}");
         }
+    }
+
+    private static Control GetTreasureRelicContainer(NTreasureRoomRelicCollection collection)
+    {
+        // Before v0.108 the scene's Container is only a local in the original _Ready.
+        return TreasureRelicContainerField?.GetValue(collection) as Control
+            ?? collection.GetNodeOrNull<Control>("Container");
     }
 
     private static List<NTreasureRoomRelicHolder> GetTreasureMultiplayerHolders(

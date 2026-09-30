@@ -29,6 +29,8 @@ public partial class Main : Node
             await CheckRuntimeBudgets();
             await CheckMenuLayoutRoundTrip();
             await CheckFontScaling();
+            ExtendedMultiplayerRoomPatches.Apply(harmony);
+            Program.RunTreasureScenarios();
             GD.Print("PASS: native Godot shader lifecycle/isolation, VFX reuse, runtime resource budgets/failure recovery and font restoration.");
             GetTree().Quit();
         }

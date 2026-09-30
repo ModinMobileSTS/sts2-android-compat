@@ -44,5 +44,7 @@ namespace STS2Mobile
         public static MethodInfo Method(Type type, string name) => AccessTools.Method(type, name);
         public static void Patch(Harmony harmony, Type type, string name, MethodInfo prefix = null, MethodInfo postfix = null) =>
             harmony.Patch(AccessTools.Method(type, name), prefix: prefix == null ? null : new HarmonyMethod(prefix), postfix: postfix == null ? null : new HarmonyMethod(postfix));
+        public static void PatchGetter(Harmony harmony, Type type, string name, MethodInfo prefix) =>
+            harmony.Patch(AccessTools.PropertyGetter(type, name), prefix: new HarmonyMethod(prefix));
     }
 }

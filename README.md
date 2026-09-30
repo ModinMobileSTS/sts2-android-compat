@@ -153,6 +153,11 @@ Current implementation (`STS2AndroidPortCompat`):
   rest sites create one ordered character container per player. A commercial-
   code-free synthetic regression is available through
   `tools/test-extended-multiplayer-rooms.sh`.
+  Older payloads without `_relicContainer` use the existing `Container` child;
+  default-focus protection does not depend on that optional field. Run the
+  synthetic runner and native `FramePreparation.Tests` with both default and
+  `-p:LegacyTreasureShape=true` shapes. These fixtures do not replace real-game
+  multiplayer verification of animation/completion and network synchronizers.
 - `LanMultiplayerPatches` bridges companion LAN settings while leaving the
   original `MessageTypes` ID assignment and `NetMessageBus`
   serialization/deserialization untouched. It adds configured compatibility

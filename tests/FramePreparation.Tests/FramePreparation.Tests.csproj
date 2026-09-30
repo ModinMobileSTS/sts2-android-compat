@@ -3,6 +3,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <Nullable>disable</Nullable>
+    <DefineConstants>$(DefineConstants);NATIVE_GODOT</DefineConstants>
+    <DefineConstants Condition="'$(LegacyTreasureShape)' == 'true'">$(DefineConstants);LEGACY_TREASURE_SHAPE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../STS2AndroidPortCompat/Patches/ShaderCompatibilityPatches.cs" Link="ShaderCompatibilityPatches.cs" />
@@ -11,6 +13,9 @@
     <Compile Include="../../STS2AndroidPortCompat/Patches/AndroidFontSizeScaler.cs" Link="AndroidFontSizeScaler.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/MobileLayoutPatches.cs" Link="MobileLayoutPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/UiScalePatches.cs" Link="UiScalePatches.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/ExtendedMultiplayerRoomPatches.cs" Link="ExtendedMultiplayerRoomPatches.cs" />
+    <Compile Include="../ExtendedMultiplayerRoom.Tests/Runner/Stubs.cs" Link="TreasureRoomFixtures.cs" />
+    <Compile Include="../ExtendedMultiplayerRoom.Tests/Runner/Program.cs" Link="TreasureRoomScenarios.cs" />
     <Reference Include="0Harmony"><HintPath>$(HarmonyReferenceDir)/0Harmony.dll</HintPath></Reference>
     <Reference Include="MonoMod.Core"><HintPath>$(HarmonyReferenceDir)/MonoMod.Core.dll</HintPath></Reference>
     <Reference Include="MonoMod.Utils"><HintPath>$(HarmonyReferenceDir)/MonoMod.Utils.dll</HintPath></Reference>

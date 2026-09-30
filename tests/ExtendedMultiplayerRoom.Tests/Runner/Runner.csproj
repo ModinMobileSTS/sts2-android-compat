@@ -4,6 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <DefineConstants Condition="'$(LegacyTreasureShape)' == 'true'">$(DefineConstants);LEGACY_TREASURE_SHAPE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../../STS2AndroidPortCompat/Patches/ExtendedMultiplayerRoomPatches.cs" Link="ExtendedMultiplayerRoomPatches.cs" />

@@ -1,14 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Models;
 
 namespace STS2Mobile.Patches;
 
 /// <summary>
-/// Defers user-MOD Harmony patches for STS2 Godot/UI classes whose static
-/// constructors are unsafe during ModManager.Initialize on Android/Mono.
+/// Defers user-MOD Harmony patches for STS2 types whose static constructors
+/// can read UI/localization or ModelDb before essential initialization.
 /// </summary>
 public static class DeferredModPatchQueue
 {
@@ -28,6 +31,7 @@ public static class DeferredModPatchQueue
     private static MethodInfo _patchClassProcessPatchJobMethod;
     private static FieldInfo _patchClassHarmonyField;
     private static FieldInfo _patchClassContainerTypeField;
+    private static FieldInfo _patchClassAuxiliaryMethodsField;
 
     private static bool _applied;
     private static int _modInitializationDepth;
@@ -43,6 +47,7 @@ public static class DeferredModPatchQueue
 
         var directProcessorInstalled = false;
         var patchClassProcessorInstalled = false;
+        var targetFactoryInstalled = false;
 
         try
         {
@@ -71,6 +76,10 @@ public static class DeferredModPatchQueue
                 _patchClassProcessPatchJobMethod,
                 prefix: new HarmonyMethod(prefix) { priority = Priority.First });
             patchClassProcessorInstalled = true;
+            harmony.Patch(
+                AccessTools.Method(typeof(PatchClassProcessor), nameof(PatchClassProcessor.Patch), Type.EmptyTypes),
+                prefix: new HarmonyMethod(typeof(DeferredModPatchQueue), nameof(PatchClassProcessorPatchPrefix)) { priority = Priority.First });
+            targetFactoryInstalled = true;
         }
         catch (Exception exception)
         {
@@ -82,7 +91,7 @@ public static class DeferredModPatchQueue
         {
             PatchHelper.Log(
                 $"{PatchLabel}: installed user-MOD Harmony patch deferral guards for early Android/Mono cctor safety "
-                + $"(direct_processor={directProcessorInstalled}, patch_all_jobs={patchClassProcessorInstalled}).");
+                + $"(direct_processor={directProcessorInstalled}, patch_all_jobs={patchClassProcessorInstalled}, target_factories={targetFactoryInstalled}).");
         }
         else
         {
@@ -98,6 +107,98 @@ public static class DeferredModPatchQueue
             _currentModId = string.IsNullOrWhiteSpace(modId) ? "<unknown>" : modId;
         }
         return new ModInitializationScope();
+    }
+
+    // TargetMethods runs before ProcessPatchJob. Defer the complete processor
+    // before Prepare/target discovery if its factory reads uninitialized models.
+    public static bool PatchClassProcessorPatchPrefix(PatchClassProcessor __instance, ref List<MethodInfo> __result)
+    {
+        if (!ShouldInspectPatch())
+            return true;
+        try
+        {
+            var auxiliary = _patchClassAuxiliaryMethodsField.GetValue(__instance) as Dictionary<Type, MethodInfo>;
+            if (auxiliary == null)
+                return true;
+            auxiliary.TryGetValue(typeof(HarmonyTargetMethods), out var factory);
+            if (factory == null)
+                auxiliary.TryGetValue(typeof(HarmonyTargetMethod), out factory);
+            if (factory == null || !ReadsModelContent(factory, factory.Module.Assembly, new HashSet<MethodBase>()))
+                return true;
+            var harmony = _patchClassHarmonyField.GetValue(__instance) as Harmony;
+            if (harmony == null)
+                return true;
+            var patch = new DeferredPatch
+            {
+                Kind = DeferredPatchKind.PatchClassProcessor,
+                Harmony = harmony,
+                HarmonyId = harmony.Id,
+                Original = factory,
+                PatchClassProcessor = __instance,
+                PatchClassName = factory.DeclaringType?.FullName,
+                ModId = CurrentModId(),
+                Reason = "target factory reads ModelDb content before essential initialization"
+            };
+            Enqueue(ref patch);
+            __result = new List<MethodInfo>();
+            PatchHelper.Log($"{PatchLabel}: deferred target factory #{patch.Order} {DescribeMethod(factory)} from {patch.HarmonyId} during {patch.ModId}.");
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"{PatchLabel}: failed to inspect target factory; retaining immediate Harmony behavior: {exception}");
+            return true;
+        }
+    }
+
+    private static bool ReadsModelContent(MethodBase method, Assembly sourceAssembly, HashSet<MethodBase> visited)
+    {
+        if (method == null || !visited.Add(method) || method.GetMethodBody() == null)
+            return false;
+        // Iterator factories return before their body runs; inspect MoveNext too.
+        var iterator = method.GetCustomAttribute<IteratorStateMachineAttribute>();
+        var moveNext = iterator?.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (ReadsModelContent(moveNext, sourceAssembly, visited))
+            return true;
+        foreach (var instruction in PatchProcessor.ReadMethodBody(method))
+        {
+            if (instruction.Value is FieldInfo field
+                && (instruction.Key == OpCodes.Ldsfld || instruction.Key == OpCodes.Ldsflda)
+                && CanInspectDependency(field.Module.Assembly, sourceAssembly)
+                && ReadsModelContent(field.DeclaringType?.TypeInitializer, sourceAssembly, visited))
+                return true;
+            if (instruction.Value is not MethodBase called
+                || (instruction.Key != OpCodes.Call && instruction.Key != OpCodes.Callvirt
+                    && instruction.Key != OpCodes.Ldftn && instruction.Key != OpCodes.Ldvirtftn
+                    && instruction.Key != OpCodes.Newobj))
+                continue;
+            if (called.DeclaringType == typeof(ModelDb))
+            {
+                // Id computation/type discovery and Contains are registration-safe;
+                // model and collection reads require canonical construction.
+                if (called.Name.StartsWith("get_", StringComparison.Ordinal)
+                    && called.Name != "get_AllAbstractModelSubtypes")
+                    return true;
+                if (called.Name == "Get" || called.Name == "GetById" || called.Name == "GetByIdOrNull"
+                    || (called is MethodInfo lookup && lookup.IsGenericMethod
+                        && typeof(AbstractModel).IsAssignableFrom(lookup.ReturnType)))
+                    return true;
+                continue;
+            }
+            if (called.DeclaringType?.FullName == "MegaCrit.Sts2.Core.Modding.ModHelper"
+                && called.Name == "ConcatModelsFromMods")
+                return true;
+            if (CanInspectDependency(called.Module.Assembly, sourceAssembly)
+                && (ReadsModelContent(called.DeclaringType?.TypeInitializer, sourceAssembly, visited)
+                    || ReadsModelContent(called, sourceAssembly, visited)))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool CanInspectDependency(Assembly assembly, Assembly sourceAssembly)
+    {
+        return assembly == sourceAssembly || IsSts2Assembly(assembly);
     }
 
     public static bool PatchProcessorPatchPrefix(PatchProcessor __instance, ref MethodInfo __result)
@@ -210,6 +311,11 @@ public static class DeferredModPatchQueue
     {
         try
         {
+            if (patch.Kind == DeferredPatchKind.PatchClassProcessor)
+            {
+                patch.PatchClassProcessor.Patch();
+                return true;
+            }
             if (patch.Kind == DeferredPatchKind.PatchClassProcessorJob)
             {
                 // Invoke the original Harmony job object instead of reconstructing
@@ -369,13 +475,28 @@ public static class DeferredModPatchQueue
             return false;
         }
 
+        if (typeof(AbstractModel).IsAssignableFrom(targetType))
+        {
+            reason = $"target {targetType.FullName} is a model with a static initializer before ModelDb.Init";
+            return true;
+        }
+
         if (IsGodotUiOrNodeType(targetType) || IsGodotUiOrNodeType(rootType))
         {
             reason = $"target {targetType.FullName} is an STS2 Godot/UI type with a static initializer";
             return true;
         }
 
-        reason = $"target {targetType.FullName} is not an early-unsafe UI/Godot type";
+        var visited = new HashSet<MethodBase>();
+        for (var type = targetType; type != null; type = type.DeclaringType)
+        {
+            if (!ReadsModelContent(type.TypeInitializer, targetType.Assembly, visited))
+                continue;
+            reason = $"target {targetType.FullName} has static initialization that reads ModelDb content or consumes a model pool";
+            return true;
+        }
+
+        reason = $"target {targetType.FullName} has no early-unsafe model/UI/Godot or model-content initialization";
         return false;
     }
 
@@ -474,6 +595,8 @@ public static class DeferredModPatchQueue
         _patchClassHarmonyField = typeof(PatchClassProcessor).GetField("instance", flags)
             ?? throw new MissingFieldException(typeof(PatchClassProcessor).FullName, "instance");
         _patchClassContainerTypeField = typeof(PatchClassProcessor).GetField("containerType", flags);
+        _patchClassAuxiliaryMethodsField = typeof(PatchClassProcessor).GetField("auxilaryMethods", flags)
+            ?? throw new MissingFieldException(typeof(PatchClassProcessor).FullName, "auxilaryMethods");
     }
 
     private static string DescribeMethod(MethodBase method)
@@ -505,7 +628,8 @@ public static class DeferredModPatchQueue
     private enum DeferredPatchKind
     {
         PatchProcessor,
-        PatchClassProcessorJob
+        PatchClassProcessorJob,
+        PatchClassProcessor
     }
 
     private struct DeferredPatch

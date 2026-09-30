@@ -82,15 +82,25 @@ Current implementation (`STS2AndroidPortCompat`):
   Runtime manifest aliases accept only file basenames and never follow symlink files or directories.
   Run `dotnet run --project tests/ModManifestAlias.Tests/ModManifestAlias.Tests.csproj`
   for isolated traversal, Unicode-name and symlink regressions (no game assemblies required).
+- `ModelDbInitPatch` keeps early vanilla models in a shadow registry until
+  phase 1. Canonical-dictionary keyed reads cover generic, Type, ID and
+  category lookups without patching shared generic method bodies. Existing
+  canonical values and original casts/errors take precedence. Publication
+  preserves object identity and removes the temporary read prefixes.
 - `DeferredModPatchQueue` protects Android/Mono from user-MOD patches that
-  eagerly initialize STS2 UI/Godot types before essential startup. It covers
-  both direct `PatchProcessor.Patch()` calls and the per-target private
-  `PatchClassProcessor.ProcessPatchJob()` path used by `Harmony.PatchAll()`.
-  Safe/model targets remain immediate; unsafe jobs retain their original
-  Harmony owner, patch lists, ordering, and per-target prepare/cleanup flow and
-  replay once after model/network type initialization. A synthetic `sts2`
-  fixture regression is available through
-  `tools/test-deferred-mod-patch-queue.sh`.
+  eagerly initialize STS2 UI/Godot/model types or read ModelDb before
+  essential startup. It covers direct `PatchProcessor.Patch()`, the
+  per-target private `PatchClassProcessor.ProcessPatchJob()` path used by
+  `Harmony.PatchAll()`, and `HarmonyTargetMethods` / `HarmonyTargetMethod`
+  factories whose target discovery reads ModelDb. It also defers resource
+  types whose static initialization reads models or consumes modded pools,
+  including helper and iterator calls. ID-only discovery and safe registration
+  remain immediate; unsafe jobs retain their original Harmony owner, patch lists,
+  ordering, and per-target prepare/cleanup flow and replay once after
+  model/network type initialization. A synthetic `sts2` fixture regression
+  is available through `tools/test-deferred-mod-patch-queue.sh`; it covers
+  direct patches, PatchAll jobs, target factories, resource cctors, pool
+  registration/freeze boundaries, failure isolation and duplicate-flush idempotence.
 - `ShaderCompatibilityPatches` loads `port_compat.pck` and applies the mobile
   shader replacements copied from the old port when
   `shader_compatibility_mode` is enabled; it intentionally keeps the original

@@ -11,5 +11,15 @@
     <Reference Include="0Harmony"><HintPath>$(CompatReferenceDir)/0Harmony.dll</HintPath></Reference>
     <Reference Include="GodotSharp"><HintPath>$(CompatReferenceDir)/GodotSharp.dll</HintPath></Reference>
     <Reference Include="sts2"><HintPath>$(CompatReferenceDir)/sts2.dll</HintPath></Reference>
+    <Reference Include="Sentry.Godot" Condition="Exists('$(CompatReferenceDir)/Sentry.Godot.dll')"><HintPath>$(CompatReferenceDir)/Sentry.Godot.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil" Condition="Exists('$(CompatReferenceDir)/Mono.Cecil.dll')"><HintPath>$(CompatReferenceDir)/Mono.Cecil.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil.Mdb" Condition="Exists('$(CompatReferenceDir)/Mono.Cecil.Mdb.dll')"><HintPath>$(CompatReferenceDir)/Mono.Cecil.Mdb.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil.Pdb" Condition="Exists('$(CompatReferenceDir)/Mono.Cecil.Pdb.dll')"><HintPath>$(CompatReferenceDir)/Mono.Cecil.Pdb.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil.Rocks" Condition="Exists('$(CompatReferenceDir)/Mono.Cecil.Rocks.dll')"><HintPath>$(CompatReferenceDir)/Mono.Cecil.Rocks.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Backports" Condition="Exists('$(CompatReferenceDir)/MonoMod.Backports.dll')"><HintPath>$(CompatReferenceDir)/MonoMod.Backports.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Core" Condition="Exists('$(CompatReferenceDir)/MonoMod.Core.dll')"><HintPath>$(CompatReferenceDir)/MonoMod.Core.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Iced" Condition="Exists('$(CompatReferenceDir)/MonoMod.Iced.dll')"><HintPath>$(CompatReferenceDir)/MonoMod.Iced.dll</HintPath></Reference>
+    <Reference Include="MonoMod.ILHelpers" Condition="Exists('$(CompatReferenceDir)/MonoMod.ILHelpers.dll')"><HintPath>$(CompatReferenceDir)/MonoMod.ILHelpers.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Utils" Condition="Exists('$(CompatReferenceDir)/MonoMod.Utils.dll')"><HintPath>$(CompatReferenceDir)/MonoMod.Utils.dll</HintPath></Reference>
   </ItemGroup>
 </Project>

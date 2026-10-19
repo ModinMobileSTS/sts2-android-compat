@@ -81,10 +81,14 @@ Startup/mod compatibility notes:
   are not reconstructed or dropped. Safe targets in the same PatchAll class stay
   immediate. Model-type patches are intentionally not deferred, because many
   mods need their `ModelDb.Init` prefixes installed before model construction.
-- `BaseLibCompatPatches` is intentionally the same degraded-mode workaround as
-  the reference launcher: `BaseLib.Utils.Patching.AsyncMethodCall.Create` is
-  prefix-disabled when BaseLib loads, so BaseLib's async hook state-machine
-  surgery is skipped while the rest of BaseLib can load.
+- `BaseLibCompatPatches` only prefix-disables
+  `BaseLib.Utils.Patching.AsyncMethodCall.Create`, retaining the existing async
+  state-machine hook workaround. `ExtendedSavePatches.Patch(Harmony)` is left
+  intact so BaseLib can register its JSON metadata and persist CardModifier and
+  other extended data. Already-lost save fields cannot be reconstructed.
+  `tests/BaseLibExtendedSave.Tests` exercises real, user-supplied BaseLib and game
+  assemblies in native Godot with separate disk-write/read processes; it does
+  not certify Android Mono or complete mod initialization.
 - `ModLoaderPatches` still rewrites `ModManager.Initialize` at the original
   `Path.Combine(..., "mods")` IL site, letting the game perform its normal
   recursive manifest scan, dependency sort, settings filtering, DLL/PCK load,

@@ -25,11 +25,12 @@ namespace STS2Mobile.Patches;
 //
 // This is a degraded-mode workaround copied from the working mobile launcher;
 // it is intentionally narrower than disabling BaseLib entirely.
+// ExtendedSavePatches.Patch must remain enabled: it registers the JSON metadata
+// that persists BaseLib CardModifier and other extended save data.
 public static class BaseLibCompatPatches
 {
     private static Harmony _harmony;
     private static bool _asyncMethodCallPatched;
-    private static bool _extendedSavePatchesPatched;
 
     public static void Apply(Harmony harmony)
     {
@@ -40,16 +41,10 @@ public static class BaseLibCompatPatches
 
     private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
     {
-        if (_asyncMethodCallPatched && _extendedSavePatchesPatched) return;
+        if (_asyncMethodCallPatched) return;
         var asmName = args.LoadedAssembly.GetName().Name;
         if (asmName != "BaseLib") return;
-        TryPatchBaseLib(args.LoadedAssembly);
-    }
-
-    private static void TryPatchBaseLib(System.Reflection.Assembly baseLibAssembly)
-    {
-        TryPatchAsyncMethodCall(baseLibAssembly);
-        TryPatchExtendedSavePatches(baseLibAssembly);
+        TryPatchAsyncMethodCall(args.LoadedAssembly);
     }
 
     private static void TryPatchAsyncMethodCall(System.Reflection.Assembly baseLibAssembly)
@@ -83,49 +78,10 @@ public static class BaseLibCompatPatches
         }
     }
 
-    private static void TryPatchExtendedSavePatches(System.Reflection.Assembly baseLibAssembly)
-    {
-        if (_extendedSavePatchesPatched)
-            return;
-        try
-        {
-            var extendedSavePatchesType = baseLibAssembly.GetType("BaseLib.Patches.Saves.ExtendedSavePatches");
-            if (extendedSavePatchesType == null)
-            {
-                PatchHelper.Log("BaseLibCompat: ExtendedSavePatches type not found in BaseLib assembly");
-                return;
-            }
-
-            var patchMethod = AccessTools.Method(extendedSavePatchesType, "Patch", new[] { typeof(Harmony) })
-                ?? extendedSavePatchesType.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-                    .FirstOrDefault(method => method.Name == "Patch" && method.GetParameters().Length == 1 && method.GetParameters()[0].ParameterType.FullName == typeof(Harmony).FullName);
-            if (patchMethod == null)
-            {
-                PatchHelper.Log("BaseLibCompat: ExtendedSavePatches.Patch(Harmony) method not found");
-                return;
-            }
-
-            var prefix = AccessTools.Method(typeof(BaseLibCompatPatches), nameof(ExtendedSavePatchesPatchPrefix));
-            _harmony.Patch(patchMethod, prefix: new HarmonyMethod(prefix));
-            _extendedSavePatchesPatched = true;
-            PatchHelper.Log("Patched BaseLib.Patches.Saves.ExtendedSavePatches.Patch (extended save context disabled for mobile compat)");
-        }
-        catch (Exception exception)
-        {
-            PatchHelper.Log($"BaseLibCompat: failed to patch ExtendedSavePatches on load: {exception.Message}");
-        }
-    }
-
     public static bool AsyncMethodCallCreatePrefix(IEnumerable<CodeInstruction> code, ref List<CodeInstruction> __result)
     {
         Console.WriteLine("[BaseLibCompat] Skipping AsyncMethodCall.Create (mobile workaround) — async hook will not fire");
         __result = code.ToList();
-        return false;
-    }
-
-    public static bool ExtendedSavePatchesPatchPrefix()
-    {
-        Console.WriteLine("[BaseLibCompat] Skipping ExtendedSavePatches.Patch (mobile workaround) — BaseLib extended save context support disabled");
         return false;
     }
 }

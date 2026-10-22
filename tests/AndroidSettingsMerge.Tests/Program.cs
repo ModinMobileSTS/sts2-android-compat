@@ -16,7 +16,7 @@ internal static class Program
         {
             AndroidSettingsBridge.SettingsPath = Path.Combine(directory, "settings.save");
             File.WriteAllText(AndroidSettingsBridge.SettingsPath,
-                "{\"volume_master\":0.75,\"android_compat_pack_enabled\":false}");
+                "{\"volume_master\":0.75,\"android_compat_pack_enabled\":false,\"android_builtin_full_keyboard\":false,\"android_floating_keyboard_enabled\":true}");
             string beforeSave = File.ReadAllText(AndroidSettingsBridge.SettingsPath);
 
             // A typed game settings save discards fields it does not own.
@@ -28,6 +28,9 @@ internal static class Program
             JsonObject saved = JsonNode.Parse(File.ReadAllText(AndroidSettingsBridge.SettingsPath))!.AsObject();
             if (saved["android_compat_pack_enabled"]?.GetValue<bool>() != false)
                 throw new InvalidOperationException("Saving in-game settings lost the launcher's disabled compatibility choice.");
+            if (saved["android_floating_keyboard_enabled"]?.GetValue<bool>() != true
+                || saved["android_builtin_full_keyboard"]?.GetValue<bool>() != false)
+                throw new InvalidOperationException("Saving in-game settings lost independent floating/full keyboard preferences.");
             if (saved["volume_master"]?.GetValue<double>() != 0.25)
                 throw new InvalidOperationException("Merging Android preferences rolled back the game's new volume setting.");
             Console.WriteLine("PASS settings serialization round-trip: " + saved.ToJsonString());

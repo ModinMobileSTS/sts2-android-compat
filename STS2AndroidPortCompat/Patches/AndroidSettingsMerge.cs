@@ -49,6 +49,8 @@ public static class AndroidSettingsMerge
         "quick_sl_enabled",
         "android_compat_pack_enabled",
         "android_volume_up_soft_keyboard",
+        "android_builtin_full_keyboard",
+        "android_floating_keyboard_enabled",
         "android_flip_screen_180",
         "android_screen_rotation_mode",
         "fullscreen_render_size",

@@ -23,6 +23,14 @@ namespace Godot
         private readonly Dictionary<string, List<Callable>> _signals = new();
         private readonly List<Node> _children = new();
         private Node _parent;
+        public string Name;
+        public int GetIndex() => _parent?._children.IndexOf(this) ?? 0;
+        public T GetNodeOrNull<T>(string name) where T : Node
+        {
+            foreach (var child in _children)
+                if (child is T typed && child.Name == name.TrimStart('%')) return typed;
+            return null;
+        }
         public void Connect(string signal, Callable callback)
         {
             if (!_signals.TryGetValue(signal, out var callbacks)) _signals[signal] = callbacks = new();
@@ -55,20 +63,39 @@ namespace Godot
         public int VisibilityWrites;
         public bool Visible { get => _visible; set { _visible = value; VisibilityWrites++; } }
         public Vector2 Position;
-        public Rect2 GetGlobalRect() => new() { Size = new Vector2(100, 100) };
+        public bool HasFocus;
+        public void ReleaseFocus() { HasFocus = false; }
+        public bool TryGrabFocus() { HasFocus = true; return true; }
+        public Rect2 GetGlobalRect() => new() { Position = Position, Size = new Vector2(100, 100) };
     }
-    public class Viewport { public static readonly Viewport Shared = new(); public Vector2 GetMousePosition() => Vector2.Zero; }
-    public class SceneTree { public static readonly SceneTree Shared = new(); public SceneTreeTimer CreateTimer(double delay) => new(); }
+    public class Viewport
+    {
+        public static readonly Viewport Shared = new();
+        public Vector2 MousePosition;
+        public int HandledInputs;
+        public Vector2 GetMousePosition() => MousePosition;
+        public Rect2 GetVisibleRect() => new() { Size = new Vector2(1000, 1000) };
+        public void SetInputAsHandled() { HandledInputs++; }
+    }
+    public class SceneTree
+    {
+        public static readonly SceneTree Shared = new();
+        public readonly List<SceneTreeTimer> Timers = new();
+        public SceneTreeTimer CreateTimer(double delay)
+        {
+            var timer = new SceneTreeTimer();
+            Timers.Add(timer);
+            return timer;
+        }
+    }
     public class SceneTreeTimer : Node { public new static class SignalName { public const string Timeout = "timeout"; } }
     public class Callable
     {
-        private readonly Action _action;
-        private readonly Action<InputEvent> _input;
-        private Callable(Action action) { _action = action; }
-        private Callable(Action<InputEvent> input) { _input = input; }
-        public static Callable From(Action action) => new(action);
-        public static Callable From<T>(Action<T> action) => new(value => action((T)(object)value));
-        public void Invoke(object value) { if (_action != null) _action(); else _input((InputEvent)value); }
+        private readonly Action<object> _action;
+        private Callable(Action<object> action) { _action = action; }
+        public static Callable From(Action action) => new(_ => action());
+        public static Callable From<T>(Action<T> action) => new(value => action((T)value));
+        public void Invoke(object value) { _action(value); }
     }
     public class Tween
     {
@@ -90,7 +117,12 @@ namespace Godot
         public static Vector2 operator -(Vector2 a, Vector2 b) => new(a.X - b.X, a.Y - b.Y);
         public float LengthSquared() => X * X + Y * Y;
     }
-    public struct Rect2 { public Vector2 Size; public bool HasPoint(Vector2 point) => point.X >= 0 && point.Y >= 0 && point.X <= Size.X && point.Y <= Size.Y; }
+    public struct Rect2
+    {
+        public Vector2 Position, Size;
+        public bool HasPoint(Vector2 point) => point.X >= Position.X && point.Y >= Position.Y
+            && point.X <= Position.X + Size.X && point.Y <= Position.Y + Size.Y;
+    }
     public static class Mathf
     {
         public const float Pi = MathF.PI, Tau = MathF.Tau;
@@ -103,10 +135,49 @@ namespace Godot
         public static ulong GetTicksMsec() => Msec;
         public static ulong GetTicksUsec() => Msec * 1000;
     }
-    public static class OS { public static bool MobileFeature; public static bool HasFeature(string feature) => MobileFeature; public static string GetName() => "Android"; }
+    public static class OS
+    {
+        public static bool MobileFeature;
+        public static string Platform = "Android";
+        public static bool HasFeature(string feature) => MobileFeature;
+        public static string GetName() => Platform;
+    }
+    public sealed class Image : GodotObject { }
+    public static class Input
+    {
+        public enum MouseModeEnum { Visible, Hidden, Captured }
+        public enum CursorShape { Arrow }
+        private static MouseModeEnum _mouseMode;
+        public static bool PointerVisible;
+        public static Image CursorImage;
+        public static Vector2 CursorHotSpot;
+        public static MouseModeEnum MouseMode
+        {
+            get => _mouseMode;
+            set
+            {
+                _mouseMode = value;
+                if (value != MouseModeEnum.Visible) PointerVisible = false;
+                // Android 4.5.1 keeps TYPE_NULL on a same-shape Visible restore.
+                else if (OS.Platform != "Android") PointerVisible = true;
+            }
+        }
+        public static void SetCustomMouseCursor(Image image, CursorShape shape, Vector2 hotSpot)
+        {
+            CursorImage = image;
+            CursorHotSpot = hotSpot;
+            PointerVisible = MouseMode == MouseModeEnum.Visible;
+        }
+    }
     public class Texture2D : GodotObject { public string Path; }
     public class Sprite2D : Node { public Texture2D Texture; }
-    public class InputEvent { }
+    public class InputEvent
+    {
+        public int Device;
+        public bool NativeTouchSource;
+        public bool SelectPressed;
+        public bool IsActionPressed(string action) => SelectPressed;
+    }
     public enum MouseButton { Left, Right }
     public class InputEventMouseButton : InputEvent { public MouseButton ButtonIndex; public bool Pressed; public Vector2 Position; }
     public class InputEventScreenTouch : InputEvent { public bool Pressed; public Vector2 Position; }
@@ -119,7 +190,9 @@ namespace MegaCrit.Sts2.Core.Nodes
     {
         public static NGame Instance = new();
         public Node HoverTipsContainer = new();
-        [MethodImpl(MethodImplOptions.NoInlining)] public void _Input(InputEvent inputEvent) { }
+        public CommonUi.NCursorManager CursorManager = new();
+        public int OriginalInputs;
+        [MethodImpl(MethodImplOptions.NoInlining)] public void _Input(InputEvent inputEvent) { OriginalInputs++; }
     }
     public class NInspectCardScreen : Control { }
 }
@@ -211,33 +284,101 @@ namespace MegaCrit.Sts2.Core.Nodes.Combat
         [MethodImpl(MethodImplOptions.NoInlining)] public void Start() { }
         [MethodImpl(MethodImplOptions.NoInlining)] public void OnCancelPlayCard() { }
     }
+    public class NTargetingArrow : Node
+    {
+        private bool _followMouse;
+        public bool RestoreOnFinish = true;
+        public void StartDrawingFrom(bool usingController)
+        {
+            _followMouse = !usingController;
+            Input.MouseMode = Input.MouseModeEnum.Hidden;
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)] public void StopDrawing()
+        {
+            if (_followMouse && RestoreOnFinish) Input.MouseMode = Input.MouseModeEnum.Visible;
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)] public void _ExitTree()
+        {
+            if (_followMouse && RestoreOnFinish) Input.MouseMode = Input.MouseModeEnum.Visible;
+        }
+    }
     public class NTargetManager
     {
         public static NTargetManager Instance = new();
         private string _targetMode = "ReleaseMouseToTarget";
         public Node HoveredNode { get; set; }
         public bool Cancelled;
-        private void FinishTargeting(bool cancel) { Cancelled = cancel; }
-        [MethodImpl(MethodImplOptions.NoInlining)] public void StartTargeting() { }
+        public NTargetingArrow TargetingArrow;
+        private void FinishTargeting(bool cancel) { Cancelled = cancel; TargetingArrow?.StopDrawing(); }
+        public void CompleteTargeting() => FinishTargeting(false);
+        public void CancelTargeting() => FinishTargeting(true);
+        [MethodImpl(MethodImplOptions.NoInlining)] public void StartTargeting() { TargetingArrow?.StartDrawingFrom(false); }
         [MethodImpl(MethodImplOptions.NoInlining)] public void _Input(InputEvent inputEvent) { }
+        public void OnNodeHovered(Node node) { HoveredNode = node; }
     }
 }
-namespace MegaCrit.Sts2.Core.Nodes.Cards.Holders { public class NHandCardHolder { } }
+namespace MegaCrit.Sts2.Core.Nodes.CommonUi
+{
+    public class NCursorManager : Node
+    {
+        private Image _lastSetCursor;
+        private bool _isUsingController;
+        private bool _shouldShowCursor = true;
+        private Image _image;
+        private Vector2 _hotSpot;
+        public void SetAppearance(Image image, Vector2 hotSpot)
+        {
+            _image = image;
+            _hotSpot = hotSpot;
+            UpdateCursor();
+        }
+        public void UseController() { _isUsingController = true; Input.MouseMode = Input.MouseModeEnum.Hidden; }
+        public void HideCursor() { _shouldShowCursor = false; Input.MouseMode = Input.MouseModeEnum.Hidden; }
+        private void UpdateCursor()
+        {
+            if (Input.MouseMode != Input.MouseModeEnum.Hidden && _lastSetCursor != _image)
+            {
+                Input.SetCustomMouseCursor(_image, Input.CursorShape.Arrow, _hotSpot);
+                _lastSetCursor = _image;
+            }
+        }
+    }
+}
 namespace STS2Mobile.Android
 {
     public static class AndroidSettingsBridge
     {
         public static string Mode = "immediate";
+        public static string RetapAction = "put_down";
+        public static bool TouchPreviewEnabled = true;
+        public static bool SelectionConfirmationEnabled = true;
         public static int Reads;
-        public static string GetString(string key, string fallback) { Reads++; return Mode; }
+        public static string GetString(string key, string fallback) { Reads++; return key == "touch_lift_retap_action" ? RetapAction : Mode; }
         public static int GetInt(string key, int fallback) { Reads++; return fallback; }
-        public static bool GetBool(string key, bool fallback) { Reads++; return fallback; }
+        public static bool GetBool(string key, bool fallback)
+        {
+            Reads++;
+            return key switch
+            {
+                "touch_lift_preview" => TouchPreviewEnabled,
+                "mobile_selection_confirmation" => SelectionConfirmationEnabled,
+                _ => fallback,
+            };
+        }
         public static void InvalidateCache() { }
     }
 }
 namespace STS2Mobile.Patches
 {
-    public static class MobileTapPreviewPatches { public static void RepinAfterCancelledCardPlay(object holder) { } }
+    // Consumer-only policy dependency: drive these gates independently of the
+    // production state machine, including hardware input during touch ownership.
+    public static class MobileInputPolicyPatches
+    {
+        public static bool TouchControls = true;
+        public static bool UseTouchControls => OS.MobileFeature && TouchControls;
+        public static bool IsTouchPointerEvent(InputEvent inputEvent) => inputEvent is InputEventScreenTouch or InputEventScreenDrag
+            || (inputEvent is InputEventMouseButton or InputEventMouseMotion && (inputEvent.Device == -1 || inputEvent.NativeTouchSource));
+    }
 }
 namespace STS2Mobile
 {

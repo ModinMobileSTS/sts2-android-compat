@@ -27,6 +27,7 @@ public static class AndroidInputCompatPatches
     private static readonly HashSet<int> SuppressedSecondaryTouchIndices = new();
     private static long _lastBackDispatchFrame = -1;
     private static ulong _lastTwoFingerDispatchTicks;
+    private static ulong _twoFingerGestureGeneration;
 
     public static void Apply(Harmony harmony)
     {
@@ -51,7 +52,8 @@ public static class AndroidInputCompatPatches
     {
         try
         {
-            if (OS.HasFeature("mobile") && what == (int)Node.NotificationWMGoBackRequest)
+            if ((OS.HasFeature("mobile") || OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
+                && what == (int)Node.NotificationWMGoBackRequest)
             {
                 ConfigureMobileBackHandling(__instance);
                 DispatchMobileBackAsEscape(__instance);
@@ -69,13 +71,13 @@ public static class AndroidInputCompatPatches
     {
         try
         {
-            if (!OS.HasFeature("mobile"))
+            if (!OS.HasFeature("mobile") && !OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase))
                 return true;
             if (TryHandleMobileBackInput(__instance, inputEvent))
                 return false;
             if (!AndroidSettingsBridge.GetBool("mobile_two_finger_inspect", true))
             {
-                ClearMobileRightClickGestureState();
+                ResetForInputModeChange();
                 return true;
             }
             ProcessMobileRightClickGesture(__instance, inputEvent);
@@ -105,7 +107,9 @@ public static class AndroidInputCompatPatches
 
     private static bool TryHandleMobileBackInput(Node inputManager, InputEvent inputEvent)
     {
-        if (!inputEvent.IsActionPressed(MobileBackAction) && !IsAndroidBackKeyEvent(inputEvent))
+        // The PC payload also binds Escape to back_button. Keep physical Escape
+        // on the game's rebindable keyboard path, including its real key-up.
+        if (inputEvent is InputEventKey ? !IsAndroidBackKeyEvent(inputEvent) : !inputEvent.IsActionPressed(MobileBackAction))
             return false;
         DispatchMobileBackAsEscape(inputManager);
         inputManager.GetViewport()?.SetInputAsHandled();
@@ -123,7 +127,7 @@ public static class AndroidInputCompatPatches
                 tree.QuitOnGoBack = false;
             if (!InputMap.HasAction(MobileBackAction))
                 InputMap.AddAction(MobileBackAction, 0.5f);
-            var backKey = new InputEventKey { PhysicalKeycode = (Key)4194305 };
+            var backKey = new InputEventKey { PhysicalKeycode = Key.Back };
             if (!InputMap.ActionHasEvent(MobileBackAction, backKey))
                 InputMap.ActionAddEvent(MobileBackAction, backKey);
         }
@@ -136,7 +140,7 @@ public static class AndroidInputCompatPatches
     private static bool IsAndroidBackKeyEvent(InputEvent inputEvent)
     {
         return inputEvent is InputEventKey { Pressed: true, Echo: false } key
-            && ((long)key.PhysicalKeycode == 4194305L || (long)key.Keycode == 4194305L);
+            && (key.PhysicalKeycode == Key.Back || key.Keycode == Key.Back);
     }
 
     private static void DispatchMobileBackAsEscape(Node inputManager)
@@ -217,8 +221,9 @@ public static class AndroidInputCompatPatches
         Input.ParseInputEvent(new InputEventAction { Action = action, Pressed = pressed });
     }
 
-    private static void ClearMobileRightClickGestureState()
+    public static void ResetForInputModeChange()
     {
+        ++_twoFingerGestureGeneration;
         ActiveTouchPoints.Clear();
         SuppressedSecondaryTouchIndices.Clear();
     }
@@ -249,8 +254,11 @@ public static class AndroidInputCompatPatches
                         _lastTwoFingerDispatchTicks = Time.GetTicksMsec();
                         GD.Print($"[MobileRightClick] two-finger gesture detected at first finger pos={position}, second finger pos={touch.Position}");
                         inputManager.GetViewport()?.SetInputAsHandled();
+                        var generation = _twoFingerGestureGeneration;
                         Callable.From(() =>
                         {
+                            if (generation != _twoFingerGestureGeneration)
+                                return;
                             if (!TryDispatchDirectMobileRightClick(position))
                                 DispatchSyntheticRightClick(position);
                         }).CallDeferred();
@@ -418,9 +426,9 @@ public static class AndroidInputCompatPatches
     private static void DispatchSyntheticRightClick(Vector2 position)
     {
         Input.WarpMouse(position);
-        Input.ParseInputEvent(new InputEventMouseMotion { Position = position, GlobalPosition = position, Relative = Vector2.Zero, Velocity = Vector2.Zero });
-        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = true, Position = position, GlobalPosition = position });
-        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = false, Position = position, GlobalPosition = position });
+        Input.ParseInputEvent(new InputEventMouseMotion { Device = -1, Position = position, GlobalPosition = position, Relative = Vector2.Zero, Velocity = Vector2.Zero });
+        Input.ParseInputEvent(new InputEventMouseButton { Device = -1, ButtonIndex = MouseButton.Right, Pressed = true, Position = position, GlobalPosition = position });
+        Input.ParseInputEvent(new InputEventMouseButton { Device = -1, ButtonIndex = MouseButton.Right, Pressed = false, Position = position, GlobalPosition = position });
         GD.Print($"[MobileRightClick] synthetic right click pos={position}");
     }
 

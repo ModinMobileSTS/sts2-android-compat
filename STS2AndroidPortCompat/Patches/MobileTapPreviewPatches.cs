@@ -47,7 +47,7 @@ public static class MobileTapPreviewPatches
     {
         try
         {
-            if (!OS.HasFeature("mobile"))
+            if (!MobileInputPolicyPatches.UseTouchControls || !MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent))
                 return true;
             var hand = NPlayerHand.Instance;
             if (hand == null || !IsCombatInputActive())
@@ -117,7 +117,7 @@ public static class MobileTapPreviewPatches
     {
         try
         {
-            if (holder == null || IsPinned(holder) || !SuppressedHolders.TryGetValue(holder, out _))
+            if (!IsTapPreviewEnabled() || holder == null || IsPinned(holder) || !SuppressedHolders.TryGetValue(holder, out _))
                 return true;
             ClearFocusedHolderIfMatches(__instance, holder);
             RefreshLayout(__instance);
@@ -142,6 +142,8 @@ public static class MobileTapPreviewPatches
 
     public static bool CardHolderRefreshFocusStatePrefix(NCardHolder __instance)
     {
+        if (!IsTapPreviewEnabled())
+            return true;
         if (PinnedHolders.TryGetValue(__instance, out _))
         {
             try
@@ -229,24 +231,56 @@ public static class MobileTapPreviewPatches
 
     public static bool IsPinned(NHandCardHolder holder)
     {
-        return holder != null && PinnedHolders.TryGetValue(holder, out _);
+        return IsTapPreviewEnabled() && holder != null && PinnedHolders.TryGetValue(holder, out _);
     }
 
     public static NCardHolder GetPinnedHolder(NPlayerHand hand)
     {
-        return hand != null && States.TryGetValue(hand, out var state) ? state.PinnedHolder : null;
+        return IsTapPreviewEnabled() && hand != null && States.TryGetValue(hand, out var state) ? state.PinnedHolder : null;
     }
 
     public static void ClearAllPinned()
     {
-        try
+        ResetForInputModeChange();
+    }
+
+    public static void ResetForInputModeChange()
+    {
+        var holders = new List<NCardHolder>();
+        foreach (var entry in PinnedHolders)
+            holders.Add(entry.Key);
+        foreach (var entry in SuppressedHolders)
+            holders.Add(entry.Key);
+        PinnedHolders.Clear();
+        SuppressedHolders.Clear();
+        foreach (var entry in States)
         {
-            var hand = NPlayerHand.Instance;
-            if (hand != null)
-                ClearPinned(hand);
+            var hand = entry.Key;
+            var state = entry.Value;
+            if (state.PinnedHolder is NHandCardHolder pinned && GodotObject.IsInstanceValid(hand))
+                ClearFocusedHolderIfMatches(hand, pinned);
+            state.PinnedHolder = null;
+            state.PendingPutDownHolder = null;
+            ClearDirectDrag(state);
+            if (GodotObject.IsInstanceValid(hand))
+                RefreshLayout(hand);
         }
-        catch
+        foreach (var holder in holders)
         {
+            if (!GodotObject.IsInstanceValid(holder))
+                continue;
+            try
+            {
+                var hitbox = holder.Hitbox;
+                var hovered = holder.Visible && hitbox != null && hitbox.IsInsideTree()
+                    && hitbox.GetGlobalRect().HasPoint(holder.GetViewport().GetMousePosition());
+                typeof(NCardHolder).GetField("_isHovered", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(holder, hovered);
+                InvokeRefreshFocusState(holder);
+            }
+            catch (Exception exception)
+            {
+                PatchHelper.Log($"Restore hand-card hover after input mode change failed: {exception.Message}");
+            }
         }
     }
 
@@ -265,7 +299,7 @@ public static class MobileTapPreviewPatches
 
     private static bool IsTapPreviewEnabled()
     {
-        return OS.HasFeature("mobile") && AndroidSettingsBridge.GetBool("touch_lift_preview", true);
+        return MobileInputPolicyPatches.UseTouchControls && AndroidSettingsBridge.GetBool("touch_lift_preview", true);
     }
 
     private static bool IsCombatInputActive()
@@ -398,6 +432,8 @@ public static class MobileTapPreviewPatches
     {
         try
         {
+            if (!IsTapPreviewEnabled() || !MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent) || !IsDirectDragRelease(inputEvent))
+                return;
             var hand = NPlayerHand.Instance;
             if (hand == null || !States.TryGetValue(hand, out var state))
                 return;
@@ -583,7 +619,7 @@ public static class MobileTapPreviewPatches
     {
         try
         {
-            if (!IsPress(inputEvent))
+            if (!MobileInputPolicyPatches.UseTouchControls || !MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent) || !IsPress(inputEvent))
                 return;
             var hand = NPlayerHand.Instance;
             if (hand != null && TryStartPinnedCardPlayAtCreature(hand, creature))

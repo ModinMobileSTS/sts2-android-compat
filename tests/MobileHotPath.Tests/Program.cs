@@ -16,10 +16,16 @@ internal static class Program
         MobileTooltipPatches.Apply(harmony);
         IntentAnimationPatches.Apply(harmony);
         TouchInputPatches.Apply(harmony);
+        MobileTapPreviewPatches.Apply(harmony);
+        MobileSelectionConfirmationPatches.Apply(harmony);
+        MerchantSelectionConfirmationPatches.Apply(harmony);
+        OS.MobileFeature = true;
         TooltipTransitions();
         IntentTransitions();
         InputTransitions();
-        Console.WriteLine("PASS: tooltip mode/hold/rebuild/reparent/release, stable-frame allocation budget, intent visual changes and release-only input.");
+        ConsumerPolicyTests.Run();
+        CursorRecoveryTests.Run();
+        Console.WriteLine("PASS: tooltip/intent hot paths and consumer-visible touch, hardware, desktop and input-mode reset boundaries.");
     }
 
     private static void TooltipTransitions()

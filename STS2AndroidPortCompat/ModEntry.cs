@@ -110,6 +110,7 @@ public static class ModEntry
             MobileLayoutPatches.Apply(_harmony);
             EventLayoutPatches.Apply(_harmony);
             MerchantLayoutPatches.Apply(_harmony);
+            MobileInputPolicyPatches.Apply(_harmony);
             TouchInputPatches.Apply(_harmony);
             CardRewardPatches.Apply(_harmony);
             EarlyAccessDisclaimerPatches.Apply(_harmony);

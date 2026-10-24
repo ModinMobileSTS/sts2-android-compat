@@ -47,6 +47,19 @@ public static class MobileSelectionConfirmationPatches
         PatchHelper.Patch(harmony, typeof(NChooseACardSelectionScreen), "AfterOverlayShown", postfix: PatchHelper.Method(typeof(MobileSelectionConfirmationPatches), nameof(OverlayShownPostfix)));
     }
 
+    public static void ResetForInputModeChange()
+    {
+        foreach (var entry in States)
+        {
+            SetPinnedPreview(entry.Value.SelectedHolder, false);
+            if (GodotObject.IsInstanceValid(entry.Value.SelectedHolder))
+                entry.Value.SelectedHolder.ReleaseFocus();
+            entry.Value.SelectedHolder = null;
+            if (GodotObject.IsInstanceValid(entry.Value.ConfirmButton))
+                entry.Value.ConfirmButton.Disable();
+        }
+    }
+
     public static void CardRewardReadyPostfix(NCardRewardSelectionScreen __instance)
     {
         EnsureConfirmButton(__instance, ConfirmRewardSelection);
@@ -65,6 +78,7 @@ public static class MobileSelectionConfirmationPatches
                 return true;
             if (!HasPendingCompletion(__instance, "_completionSource"))
                 return true;
+            EnsureConfirmButton(__instance, ConfirmRewardSelection);
             SelectHolder(__instance, cardHolder);
             return false;
         }
@@ -83,6 +97,7 @@ public static class MobileSelectionConfirmationPatches
                 return true;
             if (Time.GetTicksMsec() - GetUlongField(__instance, "_openedTicks") <= 350)
                 return false;
+            EnsureConfirmButton(__instance, ConfirmChooseCardSelection);
             SelectHolder(__instance, cardHolder);
             return false;
         }
@@ -114,6 +129,8 @@ public static class MobileSelectionConfirmationPatches
     {
         try
         {
+            if (!IsEnabled())
+                return;
             var state = States.GetOrCreateValue(screen);
             if (state.ConfirmButton != null && GodotObject.IsInstanceValid(state.ConfirmButton))
                 return;
@@ -160,6 +177,8 @@ public static class MobileSelectionConfirmationPatches
 
     private static void ConfirmRewardSelection(Node screen)
     {
+        if (!IsEnabled())
+            return;
         var state = GetState(screen);
         var holder = state?.SelectedHolder;
         if (holder == null)
@@ -178,6 +197,8 @@ public static class MobileSelectionConfirmationPatches
 
     private static void ConfirmChooseCardSelection(Node screen)
     {
+        if (!IsEnabled())
+            return;
         var state = GetState(screen);
         var holder = state?.SelectedHolder;
         var card = holder?.CardModel;
@@ -225,7 +246,7 @@ public static class MobileSelectionConfirmationPatches
 
     private static bool IsEnabled()
     {
-        return OS.HasFeature("mobile")
+        return MobileInputPolicyPatches.UseTouchControls
             && AndroidSettingsBridge.GetBool("mobile_selection_confirmation", true);
     }
 

@@ -76,6 +76,19 @@ public static class MobileTooltipPatches
         PatchHelper.Patch(harmony, typeof(NGame), "_Input", postfix: PatchHelper.Method(typeof(MobileTooltipPatches), nameof(GameInputPostfix)));
     }
 
+    public static void ResetForInputModeChange()
+    {
+        ClearPressState(incrementSerial: true);
+        if (MobileInputPolicyPatches.UseTouchControls)
+            ApplyModeVisibility(GetTooltipMode());
+        else
+        {
+            ShowAllManagedTips();
+            Owners.Clear();
+            Tips.Clear();
+        }
+    }
+
     public static bool CreateAndShowPrefix(Control __0, ref NHoverTipSet __result)
     {
         try
@@ -195,7 +208,9 @@ public static class MobileTooltipPatches
     {
         try
         {
-            if (GetTooltipMode() != ModeLongPress || !IsMobileRuntime())
+            if (!MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent))
+                return;
+            if (GetTooltipMode() != ModeLongPress || !MobileInputPolicyPatches.UseTouchControls)
             {
                 if (_pressActive)
                     EndPress(hideTips: true);
@@ -259,7 +274,8 @@ public static class MobileTooltipPatches
     {
         try
         {
-            if (GetTooltipMode() != ModeLongPress || !IsMobileRuntime() || IsExplicitDetailOwner(owner))
+            if (!MobileInputPolicyPatches.UseTouchControls || !MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent)
+                || GetTooltipMode() != ModeLongPress || IsExplicitDetailOwner(owner))
                 return;
             HandlePointerInput(owner, inputEvent, ownerEvent: true);
         }
@@ -386,7 +402,7 @@ public static class MobileTooltipPatches
     {
         try
         {
-            if (!_pressActive || serial != _pressSerial || GetTooltipMode() != ModeLongPress || !IsMobileRuntime())
+            if (!_pressActive || serial != _pressSerial || GetTooltipMode() != ModeLongPress || !MobileInputPolicyPatches.UseTouchControls)
                 return;
             RevealLongPressOwner();
         }
@@ -599,8 +615,12 @@ public static class MobileTooltipPatches
 
     private static void ApplyModeVisibility(string mode)
     {
-        if (!IsMobileRuntime())
+        if (!MobileInputPolicyPatches.UseTouchControls)
+        {
+            ClearPressState(incrementSerial: true);
+            ShowAllManagedTips();
             return;
+        }
         if (mode == ModeImmediate)
         {
             ClearPressState(incrementSerial: true);
@@ -802,7 +822,7 @@ public static class MobileTooltipPatches
 
     private static bool ShouldManage(string mode)
     {
-        return (mode == ModeLongPress || mode == ModeHidden) && IsMobileRuntime();
+        return MobileInputPolicyPatches.UseTouchControls && (mode == ModeLongPress || mode == ModeHidden);
     }
 
     private static bool IsExplicitDetailOwner(Control owner)
@@ -905,17 +925,6 @@ public static class MobileTooltipPatches
         return GetLongPressMs() / 1000.0;
     }
 
-    private static bool IsMobileRuntime()
-    {
-        try
-        {
-            return OS.HasFeature("mobile") || OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
 
     private static bool TryGetPressPosition(InputEvent input, out Vector2 position)
     {

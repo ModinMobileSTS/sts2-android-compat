@@ -3,8 +3,10 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using STS2Mobile.Android;
 
 namespace STS2Mobile.Patches;
@@ -13,6 +15,10 @@ public static class TouchInputPatches
 {
     private static readonly ConditionalWeakTable<Type, InputMembers> Members = new();
     private static readonly ConditionalWeakTable<object, TargetState> TargetStates = new ConditionalWeakTable<object, TargetState>();
+    private static readonly AccessTools.FieldRef<NCursorManager, Image> LastCursorImage = AccessTools.FieldRefAccess<NCursorManager, Image>("_lastSetCursor");
+    private static readonly AccessTools.FieldRef<NCursorManager, bool> CursorUsesController = AccessTools.FieldRefAccess<NCursorManager, bool>("_isUsingController");
+    private static readonly AccessTools.FieldRef<NCursorManager, bool> CursorShouldShow = AccessTools.FieldRefAccess<NCursorManager, bool>("_shouldShowCursor");
+    private static readonly Action<NCursorManager> UpdateCursor = (Action<NCursorManager>)AccessTools.Method(typeof(NCursorManager), "UpdateCursor").CreateDelegate(typeof(Action<NCursorManager>));
 
     public static void Apply(Harmony harmony)
     {
@@ -29,6 +35,51 @@ public static class TouchInputPatches
                 harmony.Patch(method, postfix: new HarmonyMethod(PatchHelper.Method(typeof(TouchInputPatches), nameof(TargetManagerStartPostfix))));
         }
         PatchHelper.Patch(harmony, targetManagerType, "_Input", prefix: PatchHelper.Method(typeof(TouchInputPatches), nameof(TargetManagerInputPrefix)));
+
+        var cursorPrefix = PatchHelper.Method(typeof(TouchInputPatches), nameof(TargetingCursorFinishPrefix));
+        var cursorPostfix = PatchHelper.Method(typeof(TouchInputPatches), nameof(TargetingCursorFinishPostfix));
+        PatchHelper.Patch(harmony, typeof(NTargetingArrow), "StopDrawing", prefix: cursorPrefix, postfix: cursorPostfix);
+        // Older targets have no declared exit callback; never patch Godot's inherited method.
+        var arrowExit = typeof(NTargetingArrow).GetMethod("_ExitTree", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+        if (arrowExit != null)
+            harmony.Patch(arrowExit, prefix: new HarmonyMethod(cursorPrefix), postfix: new HarmonyMethod(cursorPostfix));
+    }
+
+    public static void ResetForInputModeChange()
+    {
+        TargetStates.Clear();
+    }
+
+    public static void TargetingCursorFinishPrefix(bool ____followMouse, out bool __state)
+    {
+        __state = ____followMouse && !MobileInputPolicyPatches.UseTouchControls
+            && Input.MouseMode == Input.MouseModeEnum.Hidden
+            && OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static void TargetingCursorFinishPostfix(bool __state)
+    {
+        if (!__state || MobileInputPolicyPatches.UseTouchControls || Input.MouseMode != Input.MouseModeEnum.Visible)
+            return;
+        try
+        {
+            var game = NGame.Instance;
+            if (game == null || !GodotObject.IsInstanceValid(game))
+                return;
+            var cursor = game.CursorManager;
+            if (cursor == null || !GodotObject.IsInstanceValid(cursor) || !cursor.IsInsideTree()
+                || CursorUsesController(cursor) || !CursorShouldShow(cursor))
+                return;
+            // Android 4.5.1 can retain TYPE_NULL after Hidden -> Visible when the
+            // shape is unchanged. Reapply the game's current image/hotspot once;
+            // do not change MouseMode or bypass an intentional hide.
+            LastCursorImage(cursor) = null;
+            UpdateCursor(cursor);
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Targeting cursor refresh failed: {exception.Message}");
+        }
     }
 
 
@@ -36,7 +87,7 @@ public static class TouchInputPatches
     {
         try
         {
-            if (!IsLeftRelease(inputEvent) || !IsTouchOptimized())
+            if (!IsLeftRelease(inputEvent) || !MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent) || !IsTouchOptimized())
                 return;
 
             var members = GetMembers(__instance.GetType());
@@ -78,7 +129,7 @@ public static class TouchInputPatches
     {
         try
         {
-            if (!IsLeftRelease(inputEvent) || !IsTouchOptimized())
+            if (!IsLeftRelease(inputEvent) || !MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent) || !IsTouchOptimized())
                 return true;
             var members = GetMembers(__instance.GetType());
             var targetMode = members.TargetMode?.GetValue(__instance);
@@ -109,7 +160,7 @@ public static class TouchInputPatches
 
     private static bool IsTouchOptimized()
     {
-        return OS.HasFeature("mobile") && (AndroidSettingsBridge.GetBool("touch_lift_preview", true)
+        return MobileInputPolicyPatches.UseTouchControls && (AndroidSettingsBridge.GetBool("touch_lift_preview", true)
             || AndroidSettingsBridge.GetBool("mobile_selection_confirmation", true));
     }
 

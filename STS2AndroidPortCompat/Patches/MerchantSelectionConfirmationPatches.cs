@@ -46,6 +46,20 @@ public static class MerchantSelectionConfirmationPatches
         PatchMerchantPurchaseMethod(harmony, typeof(NMerchantCardRemoval));
     }
 
+    public static void ResetForInputModeChange()
+    {
+        foreach (var entry in States)
+        {
+            if (GodotObject.IsInstanceValid(entry.Value.PendingPurchaseSlot))
+                entry.Value.PendingPurchaseSlot.ReleaseFocus();
+            entry.Value.PendingPurchaseSlot = null;
+            if (GodotObject.IsInstanceValid(entry.Value.ConfirmButton))
+                entry.Value.ConfirmButton.Disable();
+        }
+        lock (AllowedPurchasesLock)
+            AllowedPurchases.Clear();
+    }
+
     private static void PatchMerchantPurchaseMethod(Harmony harmony, Type slotType)
     {
         PatchHelper.Patch(harmony, slotType, "OnTryPurchase", prefix: PatchHelper.Method(typeof(MerchantSelectionConfirmationPatches), nameof(MerchantSlotTryPurchasePrefix)));
@@ -70,6 +84,9 @@ public static class MerchantSelectionConfirmationPatches
     {
         try
         {
+            if (inputEvent is InputEventMouseButton or InputEventMouseMotion or InputEventScreenTouch or InputEventScreenDrag
+                && !MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent))
+                return true;
             if (!ShouldConfirmSlotSelection(__instance, out var inventory))
                 return true;
             if (!inputEvent.IsActionPressed(MegaInput.select))
@@ -89,6 +106,8 @@ public static class MerchantSelectionConfirmationPatches
     {
         try
         {
+            if (!MobileInputPolicyPatches.IsTouchPointerEvent(inputEvent))
+                return true;
             if (!ShouldConfirmSlotSelection(__instance, out var inventory))
                 return true;
             if (GetField(__instance, "_isHovered") is not true || GetField(__instance, "_ignoreMouseRelease") is true)
@@ -151,6 +170,8 @@ public static class MerchantSelectionConfirmationPatches
     {
         try
         {
+            if (!IsEnabled())
+                return;
             var state = States.GetOrCreateValue(inventory);
             if (state.ConfirmButton != null && GodotObject.IsInstanceValid(state.ConfirmButton))
                 return;
@@ -197,6 +218,8 @@ public static class MerchantSelectionConfirmationPatches
 
     private static async void OnConfirmButtonReleased(NMerchantInventory inventory)
     {
+        if (!IsEnabled())
+            return;
         var state = GetState(inventory);
         var pendingPurchaseSlot = state?.PendingPurchaseSlot;
         ClearPendingSelection(inventory);
@@ -266,7 +289,7 @@ public static class MerchantSelectionConfirmationPatches
 
     private static bool IsEnabled()
     {
-        return OS.HasFeature("mobile")
+        return MobileInputPolicyPatches.UseTouchControls
             && AndroidSettingsBridge.GetBool("mobile_selection_confirmation", true);
     }
 

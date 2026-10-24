@@ -177,6 +177,17 @@ cache. Combat-state updates outside `UpdateIntent` remain visible, with the same
 before settings lookups and cache reflection metadata per actual runtime type.
 The reaction button owns global input routing only during an active press.
 
+`TouchInputPatches` also refreshes the current cursor image/hotspot after an
+Android mouse-targeting `Hidden` -> `Visible` transition in `NTargetingArrow`'s
+`StopDrawing` or its own declared `_ExitTree`. This addresses Godot 4.5.1 Android
+retaining the invisible pointer icon until another click. It invalidates only
+the game's cursor-image cache and invokes its existing `UpdateCursor`; it does
+not change mouse mode, native runtime, targeting behavior, or per-frame work.
+Touch policy, controller ownership, explicit cursor hiding and still-hidden
+outcomes are excluded. Older targets without their own exit callback do not
+patch the inherited Godot method. `MobileHotPath.Tests` covers successful and
+canceled targeting, scene exit, cursor overrides and these exclusion boundaries.
+
 Synthetic regressions live in `tests/MobileHotPath.Tests` (relative to the compat
 repository root). Supply `HarmonyReferenceDir` pointing to the packaged runtime
 DLLs; run both the default shape and `-p:LegacyIntent=true`. They exercise actual
@@ -247,13 +258,29 @@ Optionally set `STS2_FRAME_REFERENCE_DLLS` to semicolon-separated local original
 DLL paths for read-only Cecil checks of queue IL and VFX factory/playback shapes;
 the harness never executes those game assemblies or includes commercial data.
 
-Touch preview compatibility now has a first-pass patch in
-`Patches/MobileTapPreviewPatches.cs`: when companion `touch_lift_preview` is
-true, tapping a playable hand card pins its hover preview; a second tap follows
-`touch_lift_retap_action` (`put_down`, `play`, or `none`).
+`Patches/MobileInputPolicyPatches.cs` switches the touch affordances according to
+real input activity, not connected devices. Hardware key-down, mouse clicks,
+wheel ticks or deliberate movement restore PC interaction; a new finger press
+restores the user's saved touch settings. An active pointer gesture retains its
+policy through the complete GUI release. Competing pointer streams and their
+residual releases cannot take over that gesture or click a second time.
+The Android `GodotInputSourceHost` signal is ordered before native dispatch;
+the receiver flushes the preceding source before updating provenance. Virtual
+keyboard/IME events do not switch policy, and touch-emulated or floating-button
+mouse events remain touch. No setting, polling or renderer change is introduced.
 
-Android input compatibility now has a first-pass patch in
-`Patches/AndroidInputCompatPatches.cs`: it maps the Android back action to game
-cancel/pause, emits synthetic right-clicks for two-finger inspect when
-`mobile_two_finger_inspect` is enabled, and normalizes trigger-axis controller
-input on Android.
+`Patches/MobileTapPreviewPatches.cs` pins a playable hand card when the current
+policy is touch and companion `touch_lift_preview` is true; a second tap follows
+`touch_lift_retap_action` (`put_down`, `play`, or `none`). Reward/shop confirmation
+and tooltip restrictions use the same policy. Switching clears stale selections
+and timers without playing cards, granting rewards or purchasing an item.
+`tests/MobileInputPolicy.Tests` covers ownership and deferred transitions;
+`tests/MobileHotPath.Tests` exercises all five production consumers with packaged
+Harmony, in both default and `-p:LegacyIntent=true` shapes.
+
+`Patches/AndroidInputCompatPatches.cs` maps Android Back to game cancel/pause,
+while physical Escape retains the game's real, rebindable press/release path.
+It also emits touch-marked right-clicks for two-finger inspect when
+`mobile_two_finger_inspect` is enabled and normalizes trigger-axis controller
+input on Android. Automatic touch/keyboard-mouse policy requires the current
+APK and full compat; offline bootstrap does not contain these interaction patches.

@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Assets;
-using MegaCrit.Sts2.Core.Bindings.MegaSpine;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
@@ -98,22 +97,27 @@ public static class CombatAnimationWarmupPatches
                     {
                         if (!IsActiveRoom(room) || !IsWarmableCreature(creature))
                             continue;
-                        Node2D preview = null;
+                        SpineWarmupPreview preview = null;
                         try
                         {
-                            string[] animationNames = CollectWarmupAnimationNames(creature, mode);
-                            if (animationNames.Length == 0)
-                                continue;
-                            preview = CreateSpinePreview(room, creature);
+                            preview = SpineWarmupPreview.Create(creature.Visuals?.SpineBody?.BoundObject as Node2D);
                             if (preview == null)
                                 continue;
+                            string[] animationNames = CollectWarmupAnimationNames(preview, creature, mode);
+                            if (animationNames.Length == 0)
+                                continue;
+                            Transform2D globalTransform = preview.Node.Transform;
+                            room.AddChild(preview.Node);
+                            preview.Node.GlobalTransform = globalTransform;
                             await WaitForFramesAsync(2);
+                            if (!IsActiveRoom(room) || !IsValid(preview.Node) || !preview.Node.IsInsideTree() || preview.Node.IsQueuedForDeletion())
+                                continue;
                             warmedCreatures++;
                             if (IsPreloadDebugEnabled())
                                 PatchHelper.Log($"Combat animation warmup creature={DescribeCreature(creature)} isolated_clips=[{DescribeList(animationNames)}].");
                             foreach (string animationName in animationNames)
                             {
-                                if (!IsActiveRoom(room) || !IsValid(preview) || !preview.IsInsideTree())
+                                if (!IsActiveRoom(room) || !IsValid(preview.Node) || !preview.Node.IsInsideTree() || preview.Node.IsQueuedForDeletion())
                                     break;
                                 if (await WarmAnimationClipAsync(room, preview, animationName, frames))
                                     warmedClips++;
@@ -128,7 +132,7 @@ public static class CombatAnimationWarmupPatches
                         }
                         finally
                         {
-                            FreeWarmupNode(preview);
+                            preview?.Dispose();
                             await WaitForFramesAsync(1);
                         }
                     }
@@ -408,80 +412,31 @@ public static class CombatAnimationWarmupPatches
         }
     }
 
-    private static Node2D CreateSpinePreview(NCombatRoom room, NCreature creature)
+    private static async Task<bool> WarmAnimationClipAsync(NCombatRoom room, SpineWarmupPreview preview, string animationName, int frames)
     {
-        if (creature.Visuals?.SpineBody?.BoundObject is not Node2D source
-            || !IsValid(source) || !source.IsClass("SpineSprite"))
-            return null;
-        // No scripts, signal connections, groups, or scene re-instantiation.
-        // Only the native visual is copied; never clone NCreature or its animator.
-        var preview = source.Duplicate(0) as Node2D;
-        if (preview == null)
-            return null;
-        try
-        {
-            // Child emitters/audio players can autoplay even without scripts.
-            // The native SpineSprite alone owns the skeleton rendering we warm.
-            while (preview.GetChildCount() > 0)
-                preview.GetChild(0).Free();
-            preview.ZIndex = 0;
-            preview.ZAsRelative = false;
-            room.AddChild(preview);
-            preview.GlobalTransform = source.GlobalTransform;
-            return preview;
-        }
-        catch
-        {
-            FreeWarmupNode(preview);
-            throw;
-        }
-    }
-
-    private static async Task<bool> WarmAnimationClipAsync(NCombatRoom room, Node2D preview, string animationName, int frames)
-    {
-        if (!IsActiveRoom(room) || !IsValid(preview) || !preview.IsInsideTree())
+        if (!IsActiveRoom(room) || !IsValid(preview.Node) || !preview.Node.IsInsideTree() || preview.Node.IsQueuedForDeletion())
             return false;
-        try
+        float duration = preview.Play(animationName, IsLoopingAnimationName(animationName));
+        int samples = Math.Max(1, frames);
+        for (int i = 0; i < samples; i++)
         {
-            using var stateValue = preview.Call("get_animation_state");
-            using var skeletonValue = preview.Call("get_skeleton");
-            using GodotObject state = stateValue.AsGodotObject();
-            using GodotObject skeleton = skeletonValue.AsGodotObject();
-            if (state == null || skeleton == null)
+            if (!IsActiveRoom(room) || !IsValid(preview.Node) || !preview.Node.IsInsideTree() || preview.Node.IsQueuedForDeletion())
                 return false;
-            using var trackValue = state.Call("set_animation", animationName, IsLoopingAnimationName(animationName), 0);
-            using GodotObject track = trackValue.AsGodotObject();
-            if (track == null)
-                return false;
-            track.Call("set_mix_duration", 0f).Dispose();
-            float duration = track.Call("get_animation_end").AsSingle();
-            int samples = Math.Max(1, frames);
-            for (int i = 0; i < samples; i++)
+            float trackTime = 0f;
+            if (duration > 0.001f)
             {
-                if (!IsActiveRoom(room) || !IsValid(preview) || !preview.IsInsideTree())
-                    return false;
-                if (duration > 0.001f)
-                {
-                    float ratio = samples == 1 ? 0.05f : (float)i / Math.Max(1, samples - 1);
-                    track.Call("set_track_time", Math.Min(duration - 0.001f, Math.Max(0f, duration * ratio))).Dispose();
-                }
-                state.Call("update", 0f).Dispose();
-                state.Call("apply", skeleton).Dispose();
-                await WaitForFramesAsync(1);
+                float ratio = samples == 1 ? 0.05f : (float)i / Math.Max(1, samples - 1);
+                trackTime = Math.Min(duration - 0.001f, Math.Max(0f, duration * ratio));
             }
-            return true;
+            preview.Sample(trackTime);
+            await WaitForFramesAsync(1);
         }
-        catch (Exception exception)
-        {
-            if (IsPreloadDebugEnabled())
-                PatchHelper.Log($"Isolated combat animation warmup skipped clip={animationName}: {exception.GetType().Name}: {exception.Message}");
-            return false;
-        }
+        return IsActiveRoom(room) && IsValid(preview.Node) && preview.Node.IsInsideTree() && !preview.Node.IsQueuedForDeletion();
     }
 
-    private static string[] CollectWarmupAnimationNames(NCreature creature, string mode)
+    private static string[] CollectWarmupAnimationNames(SpineWarmupPreview preview, NCreature creature, string mode)
     {
-        var names = CollectAllAnimationNames(creature);
+        IEnumerable<string> names = preview.GetAnimationNames();
         if (mode == ModeSafe)
             names = names.Where(name => IsSafeCombatAnimationName(creature, name));
         return names
@@ -491,42 +446,6 @@ public static class CombatAnimationWarmupPatches
             .ThenBy(name => name, StringComparer.Ordinal)
             .Take(MaxClipsPerCreature)
             .ToArray();
-    }
-
-    private static IEnumerable<string> CollectAllAnimationNames(NCreature creature)
-    {
-        MegaSprite sprite = creature.Visuals?.SpineBody;
-        MegaSkeleton skeleton = sprite?.GetSkeleton();
-        MegaSkeletonDataResource data = skeleton?.GetData();
-        if (data == null)
-            yield break;
-
-        Godot.Collections.Array<GodotObject> animations;
-        try
-        {
-            animations = (Godot.Collections.Array<GodotObject>)data.BoundObject.Call("get_animations");
-        }
-        catch (Exception exception)
-        {
-            if (IsPreloadDebugEnabled())
-                PatchHelper.Log($"Combat animation list unavailable creature={DescribeCreature(creature)}: {exception.Message}");
-            yield break;
-        }
-
-        foreach (GodotObject animation in animations)
-        {
-            string name = null;
-            try
-            {
-                name = animation?.Call("get_name").AsString();
-            }
-            catch
-            {
-                name = null;
-            }
-            if (!string.IsNullOrWhiteSpace(name))
-                yield return name;
-        }
     }
 
     private static bool IsWarmableCreature(NCreature creature)

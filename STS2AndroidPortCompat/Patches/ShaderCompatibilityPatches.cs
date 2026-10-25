@@ -8,6 +8,7 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards;
+using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using MegaCrit.Sts2.Core.Nodes.Screens.Timeline;
 using MegaCrit.Sts2.Core.Nodes.Vfx;
@@ -25,6 +26,9 @@ namespace STS2Mobile.Patches;
 public static class ShaderCompatibilityPatches
 {
     private const string OverlayPackFileName = "port_compat.pck";
+    private const string IroncladEnergyCounterScene = "res://scenes/combat/energy_counters/ironclad_energy_counter.tscn";
+    private const string IroncladEnergyFrontScene = "res://scenes/vfx/energy/ironclad/ironclad_energy_vfx_front.tscn";
+    private const string FireEmbersScene = "res://scenes/vfx/fire_impact/vfx_fire_embers_straight.tscn";
 
     private static readonly Dictionary<string, string> ShaderOverrides = new(StringComparer.Ordinal)
     {
@@ -96,6 +100,7 @@ public static class ShaderCompatibilityPatches
         PatchHelper.Patch(harmony, typeof(NEpochSlot), "_Ready", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(EpochSlotReadyPostfix)));
         PatchHelper.Patch(harmony, typeof(NRadialBlurVfx), "_Ready", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(RadialBlurReadyPostfix)));
         PatchHelper.Patch(harmony, typeof(NCard), "Reload", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(CardReloadPostfix)));
+        PatchHelper.Patch(harmony, typeof(NEnergyCounter), "Create", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(EnergyCounterCreatePostfix)));
     }
 
     public static void GameReadyPostfix(NGame __instance)
@@ -206,6 +211,49 @@ public static class ShaderCompatibilityPatches
             return;
         EnsureOverlayPackLoadedForDiagnostics();
         ReplaceCachedField(__instance, "_blurShader", "Rect");
+    }
+
+    public static void EnergyCounterCreatePostfix(NEnergyCounter __result)
+    {
+        if (__result == null || !IsEnabled())
+            return;
+        try
+        {
+            // Use the active renderer, not the requested project setting: a
+            // Vulkan request can have fallen back to Compatibility at runtime.
+            if (!OS.GetName().Equals("Android", StringComparison.OrdinalIgnoreCase)
+                || __result.SceneFilePath != IroncladEnergyCounterScene
+                || RenderingServer.GetCurrentRenderingMethod() != "gl_compatibility")
+                return;
+            var adapter = RenderingServer.GetVideoAdapterName();
+            if (adapter.IndexOf("Maleoon", StringComparison.OrdinalIgnoreCase) < 0)
+                return;
+
+            var front = __result.GetNodeOrNull<Node2D>("EnergyVfxFront");
+            if (front?.SceneFilePath != IroncladEnergyFrontScene)
+                return;
+            var particles = front.GetNodeOrNull<GpuParticles2D>("vfx_fire_embers_straight");
+            if (particles == null || particles.SceneFilePath != FireEmbersScene
+                || !particles.OneShot || particles.GetScript().VariantType != Variant.Type.Nil
+                || particles.ProcessMaterial is not ParticleProcessMaterial original
+                || !original.TurbulenceEnabled
+                || !original.ResourcePath.StartsWith(IroncladEnergyFrontScene + "::", StringComparison.Ordinal))
+                return;
+
+            // Create returns a detached scene. Change the material before its
+            // first tree entry/Restart can submit the problematic GPU program.
+            // Shallow duplication retains every curve/texture without copying
+            // or mutating those shared resources. Only the feature bit changes.
+            var compatible = (ParticleProcessMaterial)original.Duplicate();
+            compatible.TurbulenceEnabled = false;
+            particles.ProcessMaterial = compatible;
+            if (LoggedReplacements.Add("maleoon/ironclad-energy-turbulence"))
+                PatchHelper.Log($"Shader compatibility Maleoon energy embers: turbulence disabled on per-instance material; adapter={adapter} renderer=gl_compatibility.");
+        }
+        catch (Exception exception)
+        {
+            PatchHelper.Log($"Shader compatibility energy particle repair failed: {exception.Message}");
+        }
     }
 
     public static void CardReloadPostfix(object __instance)
@@ -335,6 +383,8 @@ public static class ShaderCompatibilityPatches
             EpochSlotReadyPostfix(epochSlot);
         else if (node is NRadialBlurVfx radialBlur)
             RadialBlurReadyPostfix(radialBlur);
+        else if (node is NEnergyCounter energyCounter)
+            EnergyCounterCreatePostfix(energyCounter);
         for (int i = 0; i < node.GetChildCount(); i++)
             RepairKnownCachedMaterials(node.GetChild(i));
     }

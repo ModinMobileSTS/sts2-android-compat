@@ -16,7 +16,7 @@ public partial class Main : Node
         {
             CheckOriginalContracts();
             var harmony = new Harmony("sts2.frame-preparation.native-tests");
-            // Exercise mobile gating without replacing any rendering/resource API.
+            // Exercise mobile gating while keeping node/material/rendering operations native.
             harmony.Patch(AccessTools.Method(typeof(OS), nameof(OS.GetName)), prefix: new HarmonyMethod(typeof(Main), nameof(MobilePlatform)));
             ShaderCompatibilityPatches.Apply(harmony);
             CombatVfxPoolPatches.Apply(harmony);
@@ -25,6 +25,7 @@ public partial class Main : Node
             AddChild(game);
             await Frame();
             await CheckShaderLifecycle(game);
+            await CheckEnergyParticles(harmony, game);
             await CheckVfxReuse();
             await CheckExpandedVfxReuse();
             await CheckRuntimeBudgets();
@@ -42,7 +43,8 @@ public partial class Main : Node
         }
     }
 
-    private static bool MobilePlatform(ref string __result) { __result = "Android"; return false; }
+    private static string _testPlatform = "Android";
+    private static bool MobilePlatform(ref string __result) { __result = _testPlatform; return false; }
     private async Task Frame() => await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
     private static void Require(bool condition, string message)
     {

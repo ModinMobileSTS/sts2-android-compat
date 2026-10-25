@@ -1,0 +1,13 @@
+{
+  "skeleton": { "hash": "author-created-issue109", "spine": "4.2.0", "x": -12, "y": -12, "width": 24, "height": 24 },
+  "bones": [ { "name": "root" }, { "name": "moving", "parent": "root" } ],
+  "slots": [ { "name": "tile", "bone": "moving", "attachment": "tile" } ],
+  "skins": [
+    { "name": "default", "attachments": { "tile": { "tile": { "path": "tile", "width": 24, "height": 24, "color": "ff2020ff" } } } },
+    { "name": "green", "attachments": { "tile": { "tile": { "path": "tile", "width": 24, "height": 24, "color": "20ff20ff" } } } }
+  ],
+  "animations": {
+    "idle": { "bones": { "moving": { "translate": [ { "x": 0 }, { "time": 0.5, "x": 32 }, { "time": 1, "x": 0 } ] } } },
+    "hit": { "bones": { "moving": { "translate": [ { "x": 0 }, { "time": 0.25, "x": -24 }, { "time": 0.5, "x": 0 } ] } } }
+  }
+}

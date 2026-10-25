@@ -117,6 +117,17 @@ Current implementation (`STS2AndroidPortCompat`):
   Known `AssetCache.GetMaterial()` and `NCard.Reload()` repair paths explicitly
   bind replacement material copies; the current integration exposes no generic
   late-material helper, so callers must not assume arbitrary dynamic assignments
+- The same shader-compatibility switch enables a narrow Android/Maleoon workaround
+  only with the actual `gl_compatibility` renderer. At `NEnergyCounter.Create()`
+  return, before tree entry, the known built-in Ironclad front energy-ember emitter
+  receives a shallow `ParticleProcessMaterial` copy with only turbulence disabled.
+  Original scene identities, embedded material provenance, one-shot playback and
+  absence of a custom particle script are required. Shared materials, other emitters,
+  particle counts/timing and combat logic stay unchanged; custom MOD resources and
+  Vulkan/non-Maleoon runtimes are excluded. Repeated settings application is
+  idempotent; disabling stops future replacements but restoring existing copies
+  requires restarting the game. Native boundaries are covered by
+  `tests/FramePreparation.Tests`; desktop OpenGL does not certify Huawei drivers.
 - Inline VisualShader resources with no stable resource path are handled only by
   an exact generated-code SHA-256 allowlist plus a built-in source identity prefix
   (`res://scenes/`, `res://images/`, or `res://shaders/`). `res://mods/`,
@@ -211,10 +222,22 @@ Current implementation (`STS2AndroidPortCompat`):
 - Learned warm assets use one atomic schema-2 snapshot capped at 512 paths and
   scoped to the launch profile, payload/compat assemblies, and ordered loaded-MOD
   identities/file metadata. Unscoped legacy lists or mismatched contexts are relearned.
-- Optional combat animation warmup samples a separate native `SpineSprite` clone
-  without scripts, signal connections, groups, or child autoplay nodes. It never
-  triggers or rewinds the live creature animator; trigger-driven VFX/audio are no
-  longer covered by animation warmup. Unsupported Spine APIs skip the preview.
+- Optional combat animation warmup constructs a fresh native `SpineSprite` via
+  `ClassDB.Instantiate`, sharing read-only data/materials and copying the current
+  skin attachment map and render properties. Spine owns its skeleton, state and
+  mesh children: never `Duplicate()` then strip children, or free meshes separately.
+  Scripts, game signals and child audio/particles are not copied. Temporary and
+  preview-only bindings are released on the Godot main thread; source/shared
+  bindings stay borrowed, and tree exit stops later sampling before root disposal.
+  It never triggers or rewinds the live creature animator; trigger-driven VFX/audio
+  remain outside animation warmup. Unsupported Spine APIs skip the preview. Existing
+  animation/hit-effect settings and defaults are unchanged. Native rendered regression:
+  `tests/SpineWarmup.Tests/run-native.sh` (`GODOT`, `DOTNET`, `SPINE_EXTENSION_DIR`);
+  provide Godot 4.5.1 mono, .NET 9 and the official Spine 4.2 extension separately,
+  plus Xvfb/Mesa on display-less Linux. Synthetic skeleton/atlas and generated artwork
+  exercise real pixels, skin/state isolation, interruption and GC; no game files.
+  Spine's [runtime license](https://esotericsoftware.com/spine-runtimes-license),
+  not MIT, applies to the supplied native extension; do not commit its binaries.
 - Known Waterfall Giant/Orobas backgrounds only bound excessive preprocessing of
   standard continuous ambient particles to one lifetime plus the original phase.
   Burst, one-shot, trail, sub-emitter, custom-material and long-lived effects remain

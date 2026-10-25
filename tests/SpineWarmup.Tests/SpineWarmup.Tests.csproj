@@ -1,0 +1,20 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../STS2AndroidPortCompat/Patches/SpineWarmupPreview.cs" Link="SpineWarmupPreview.cs" />
+  </ItemGroup>
+  <Target Name="StageNativeSpine" BeforeTargets="Build">
+    <Error Condition="!Exists('$(SpineExtensionDir)/spine_godot_extension.gdextension')" Text="Set SpineExtensionDir to the official spine-godot 4.2 / Godot 4.5.1 archive's bin directory. No game assemblies or resources are needed." />
+    <ItemGroup>
+      <SpineManifest Include="$(SpineExtensionDir)/spine_godot_extension.gdextension" />
+      <SpineLibraries Include="$(SpineExtensionDir)/linux/*x86_64.so" />
+    </ItemGroup>
+    <MakeDir Directories="native/linux" />
+    <Copy SourceFiles="@(SpineManifest)" DestinationFolder="native" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SpineLibraries)" DestinationFolder="native/linux" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

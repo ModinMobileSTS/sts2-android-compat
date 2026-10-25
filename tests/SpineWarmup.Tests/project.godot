@@ -1,0 +1,21 @@
+config_version=5
+
+[application]
+config/name="SpineWarmup.Tests"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.5", "C#")
+
+[display]
+window/size/viewport_width=384
+window/size/viewport_height=192
+window/size/window_width_override=768
+window/size/window_height_override=384
+window/stretch/mode="viewport"
+
+[dotnet]
+project/assembly_name="SpineWarmup.Tests"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+environment/defaults/default_clear_color=Color(0, 0, 0, 1)
+textures/default_filters/use_nearest_mipmap_filter=false

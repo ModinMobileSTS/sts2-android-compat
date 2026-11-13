@@ -117,6 +117,32 @@ public partial class Main : Node
         Material maskedResult = maskedMaterial;
         ShaderCompatibilityPatches.GetMaterialPostfix("res://scenes/cards/card_canvas_group_blur_material.tres", ref maskedResult);
         Require(ReferenceEquals(maskedResult, maskedMaterial), "Ancient-card mask materials must not use the ordinary blur replacement.");
+#if STS2_TARGET_1130
+        foreach (var shaderPath in new[]
+        {
+            "res://shaders/blur/Blur.gdshader",
+            "res://shaders/blur/canvas_group_mask_blur.gdshader",
+        })
+        {
+            var originalBlur = Original(shaderPath);
+            var portrait = new ColorRect { Material = originalBlur };
+            parent.AddChild(portrait);
+            await Frame();
+            Require(ReferenceEquals(portrait.Material, originalBlur),
+                "Deferred shader processing must retain the v113 two-pass blur material.");
+            foreach (var materialPath in new[]
+            {
+                "res://scenes/cards/card_portrait_blur_material.tres",
+                "res://scenes/cards/card_canvas_group_blur_material.tres",
+            })
+            {
+                Material blurResult = originalBlur;
+                ShaderCompatibilityPatches.GetMaterialPostfix(materialPath, ref blurResult);
+                Require(ReferenceEquals(blurResult, originalBlur),
+                    "v113 material-cache interception must retain original portrait and canvas-group blur resources.");
+            }
+        }
+#endif
         AndroidSettingsBridge.Enabled = false;
         ShaderCompatibilityPatches.RefreshSettings();
         var disabled = new ColorRect { Material = shared };

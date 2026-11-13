@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "target_id": "v0.113.0",
+  "status": "active",
+  "display_name": "STS2 v0.113.0",
+  "versions": [
+    "v0.113.0"
+  ],
+  "reference_flavor": "original-v0.113.0",
+  "channel": "beta",
+  "source": "original_pc_reference_v0.113.0",
+  "steam_branch": "public-beta",
+  "sts2_dll_sha256": "a6cc282c52b96ad2e01d5692b1144b33aa8e3ba4e969582f648ecb13b2f751d7",
+  "compile_constants": [
+    "STS2_TARGET_1130"
+  ],
+  "notes": [
+    "Independent flattened target for the v0.113.0 public-beta managed API, new game modes and UI contracts; do not merge into the v0.111.0 variant.",
+    "LAN joining uses the payload-owned NJoinFriendScreen.JoinGameAsync lifecycle; host services retain PeerVersionInfo.LocalDefault() and the original HandshakeManager, MessageTypes and NetMessageBus.",
+    "LAN hosting preserves the separate isCustom flag and routes Standard, Daily, Blitz and Dread through their original lobby screens; loaded custom runs use IsCustomGame.",
+    "Merchant confirmation and extended treasure-room layouts resolve the v0.113 purchase and holder shapes while retaining legacy target behavior."
+  ]
+}

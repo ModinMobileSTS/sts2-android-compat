@@ -266,9 +266,13 @@ export STS2_ORIGINAL_V1090_REFERENCE_DIR=/path/to/original-v0.109.1/bin/Debug
 export STS2_ORIGINAL_V1100_REFERENCE_DIR=/path/to/original-v0.110.1/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.110.0
 
-# Current v0.111.0 public-beta API/handshake target.
+# Older v0.111.0 public-beta API/handshake target.
 export STS2_ORIGINAL_V1110_REFERENCE_DIR=/path/to/original-v0.111.0/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.111.0
+
+# Current v0.113.0 public-beta mode/UI target; preserve its original atlas-aware blur.
+export STS2_ORIGINAL_V1130_REFERENCE_DIR=/path/to/original-v0.113.0/data_sts2_windows_x86_64
+./tools/build-compat-matrix.sh --target v0.113.0
 ```
 
 `tools/build-compat-pack.sh` is the legacy schema-1 path; use it only when also providing a matching `COMPAT_MANIFEST`.

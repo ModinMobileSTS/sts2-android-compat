@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
@@ -23,6 +27,10 @@ internal static class ConsumerPolicyTests
         PreviewPointerOwnershipAndReset();
         RewardConfirmationAndReset();
         MerchantConfirmationAndReset();
+        MerchantProductPurchases();
+        MerchantSelectionLifecycle();
+        MerchantRejectedPurchases();
+        MerchantCancellationAndExceptions();
         TooltipPointerOwnershipAndReset();
         TouchReleaseOwnershipAndReset();
     }
@@ -47,6 +55,7 @@ internal static class ConsumerPolicyTests
         var inventory = new NMerchantInventory();
         inventory._Ready();
         var slot = new NMerchantCard(inventory);
+        slot.Entry.RestockAfterPurchase = true;
         slot.OnMouseReleased(new InputEventMouseButton { ButtonIndex = MouseButton.Left });
         Require(slot.Purchases == 1, "hardware/desktop merchant release purchases immediately");
         slot._GuiInput(new InputEvent { SelectPressed = true });
@@ -205,6 +214,7 @@ internal static class ConsumerPolicyTests
         var inventory = new NMerchantInventory();
         inventory._Ready();
         var slot = new NMerchantCard(inventory);
+        slot.Entry.RestockAfterPurchase = true;
         var button = inventory.GetNodeOrNull<NConfirmButton>("AndroidMerchantConfirmButton");
         slot.OnMouseReleased(new InputEventMouseButton { Device = -1, ButtonIndex = MouseButton.Left });
         Require(slot.Purchases == 0 && button.Enabled, "touch merchant release waits for confirmation");
@@ -227,6 +237,180 @@ internal static class ConsumerPolicyTests
         MerchantSelectionConfirmationPatches.ResetForInputModeChange();
         button.Release();
         Require(slot.Purchases == 1, "merchant reset also clears a selection left by hot-disable");
+    }
+
+    private static void MerchantProductPurchases()
+    {
+        var inventory = new NMerchantInventory();
+        inventory._Ready();
+        var button = inventory.GetNodeOrNull<NConfirmButton>("AndroidMerchantConfirmButton");
+        NMerchantSlot[] slots = { new NMerchantCard(inventory), new NMerchantRelic(inventory), new NMerchantPotion(inventory), new NMerchantCardRemoval(inventory) };
+        foreach (var slot in slots)
+        {
+            int beforeGold = inventory.Inventory.Gold;
+            int beforeItems = inventory.Inventory.PurchasedItems.Count;
+            slot.OnMouseReleased(new InputEventMouseButton { Device = -1, ButtonIndex = MouseButton.Left });
+            Require(button.Enabled && slot.Purchases == 0 && inventory.Inventory.Gold == beforeGold && inventory.Inventory.PurchasedItems.Count == beforeItems,
+                $"first touch only selects {slot.Entry.Item}, without charging or granting it");
+            button.Release();
+            Require(!button.Enabled && slot.Purchases == 1 && inventory.Inventory.Gold == beforeGold - slot.Entry.Cost
+                && inventory.Inventory.PurchasedItems.Count == beforeItems + 1 && inventory.Inventory.PurchasedItems[^1] == slot.Entry.Item && !slot.Entry.IsStocked,
+                $"confirmation buys exactly the selected {slot.Entry.Item} once, at its normal price");
+            button.Release();
+            Require(slot.Purchases == 1 && inventory.Inventory.Gold == beforeGold - slot.Entry.Cost,
+                $"a repeated confirmation cannot repurchase {slot.Entry.Item}");
+        }
+    }
+
+    private static void MerchantSelectionLifecycle()
+    {
+        var inventory = new NMerchantInventory();
+        inventory._Ready();
+        var card = new NMerchantCard(inventory);
+        var relic = new NMerchantRelic(inventory);
+        var button = inventory.GetNodeOrNull<NConfirmButton>("AndroidMerchantConfirmButton");
+        card._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        relic._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        button.Release();
+        Require(card.Purchases == 0 && relic.Purchases == 1 && inventory.Inventory.Gold == 100 - relic.Entry.Cost,
+            "changing the pending slot purchases only the most recently selected item");
+
+        card._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        inventory.OnPurchaseCompleted();
+        button.Release();
+        Require(card.Purchases == 0 && !button.Enabled, "another completed purchase invalidates the pending slot");
+        card._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        inventory.Close();
+        inventory.Open();
+        button.Release();
+        Require(card.Purchases == 0 && !button.Enabled, "closing and reopening cannot revive a pending purchase");
+        card._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        inventory.Open();
+        button.Release();
+        Require(card.Purchases == 0 && !button.Enabled, "opening an inventory clears its previous selection");
+
+        card._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        inventory.BlockInput();
+        Require(!button.Enabled, "blocked merchant input disables confirmation without purchasing");
+        inventory.UnblockInput();
+        inventory.OnActiveScreenUpdated();
+        Require(button.Enabled && card.Purchases == 0, "unblocking and focus refresh retain the current pending slot");
+        button.Release();
+        Require(card.Purchases == 1 && !button.Enabled, "the retained pending slot still requires an explicit confirmation");
+
+        var potion = new NMerchantPotion(inventory);
+        potion._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        potion.Entry.IsStocked = false;
+        button.Release();
+        Require(potion.Purchases == 0 && !button.Enabled, "a pending item that went out of stock cannot be bought");
+    }
+
+    private static void MerchantRejectedPurchases()
+    {
+        foreach (var item in new[] { MerchantItem.Card, MerchantItem.Relic, MerchantItem.Potion, MerchantItem.CardRemoval })
+        {
+            var inventory = new NMerchantInventory();
+            inventory._Ready();
+            NMerchantSlot slot = item switch
+            {
+                MerchantItem.Card => new NMerchantCard(inventory),
+                MerchantItem.Relic => new NMerchantRelic(inventory),
+                MerchantItem.Potion => new NMerchantPotion(inventory),
+                _ => new NMerchantCardRemoval(inventory)
+            };
+            var button = inventory.GetNodeOrNull<NConfirmButton>("AndroidMerchantConfirmButton");
+            inventory.Inventory.Gold = slot.Entry.Cost - 1;
+            slot._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+            button.Release();
+            Require(slot.Purchases == 0 && slot.Entry.IsStocked && inventory.Inventory.PurchasedItems.Count == 0
+                && inventory.Inventory.Gold == slot.Entry.Cost - 1 && !button.Enabled,
+                $"an unaffordable {item} preserves vanilla failure, stock and wallet state");
+            inventory.Inventory.Gold = 100;
+            button.Release();
+            Require(slot.Purchases == 0, $"adding gold after a failed {item} purchase cannot commit a stale confirmation");
+        }
+
+        var potionInventory = new NMerchantInventory();
+        potionInventory._Ready();
+        potionInventory.Inventory.PotionBeltFull = true;
+        var potion = new NMerchantPotion(potionInventory);
+        potion._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+        potionInventory.GetNodeOrNull<NConfirmButton>("AndroidMerchantConfirmButton").Release();
+        Require(potion.Purchases == 0 && potion.Entry.IsStocked && potionInventory.Inventory.Gold == 100 && potionInventory.Inventory.PurchasedItems.Count == 0,
+            "a full potion belt rejects confirmation without charging or granting a potion");
+    }
+
+    private static void MerchantCancellationAndExceptions()
+    {
+        var previousContext = SynchronizationContext.Current;
+        var context = new MerchantCallbackContext();
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            var inventory = new NMerchantInventory();
+            inventory._Ready();
+            var button = inventory.GetNodeOrNull<NConfirmButton>("AndroidMerchantConfirmButton");
+            var removal = new NMerchantCardRemoval(inventory);
+            removal.Entry.PurchaseDecision = new TaskCompletionSource<bool>();
+            removal._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+            button.Release();
+            Require(removal.Purchases == 0 && inventory.Inventory.Gold == 100 && !button.Enabled,
+                "confirmed card removal awaits the original card choice before charging or removing");
+            SetTouchControls(false);
+            removal.Entry.PurchaseDecision.SetResult(false);
+            context.Drain();
+            Require(removal.Purchases == 0 && removal.Entry.IsStocked && inventory.Inventory.Gold == 100 && inventory.Inventory.PurchasedItems.Count == 0,
+                "canceling card removal preserves stock, gold and deck even across an input-mode reset");
+            SetTouchControls(true);
+            button.Release();
+            Require(removal.Purchases == 0, "a canceled removal cannot be revived by a stale confirmation");
+            removal.Entry.PurchaseDecision = new TaskCompletionSource<bool>();
+            removal._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+            button.Release();
+            SetTouchControls(false);
+            removal.Entry.PurchaseDecision.SetResult(true);
+            context.Drain();
+            Require(removal.Purchases == 1 && !removal.Entry.IsStocked && inventory.Inventory.Gold == 100 - removal.Entry.Cost
+                && inventory.Inventory.PurchasedItems.Count == 1 && inventory.Inventory.PurchasedItems[0] == MerchantItem.CardRemoval,
+                "mode reset does not cancel an already-started original card removal or duplicate its charge");
+            SetTouchControls(true);
+
+            var card = new NMerchantCard(inventory);
+            var failure = new InvalidOperationException("merchant purchase failure");
+            card.Entry.PurchaseException = failure;
+            card._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+            button.Release();
+            context.Drain();
+            Require(context.Errors.Count == 1 && ReferenceEquals(context.Errors[0], failure) && card.Purchases == 0
+                && inventory.Inventory.Gold == 100 - removal.Entry.Cost && !button.Enabled,
+                "the actual purchase exception reaches the caller instead of being swallowed or reported as success");
+            card.Entry.PurchaseException = null;
+            card._GuiInput(new InputEventScreenTouch { Pressed = true, SelectPressed = true });
+            Require(card.Purchases == 0 && button.Enabled, "failed confirmation leaves no allowance for a later first selection");
+            button.Release();
+            context.Drain();
+            Require(card.Purchases == 1 && context.Errors.Count == 1, "a fresh confirmation can buy normally after a purchase fault");
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
+    }
+
+    private sealed class MerchantCallbackContext : SynchronizationContext
+    {
+        private readonly Queue<(SendOrPostCallback Callback, object State)> _callbacks = new();
+        public readonly List<Exception> Errors = new();
+        public override void Post(SendOrPostCallback callback, object state) { _callbacks.Enqueue((callback, state)); }
+        public void Drain()
+        {
+            while (_callbacks.Count > 0)
+            {
+                var callback = _callbacks.Dequeue();
+                try { callback.Callback(callback.State); }
+                catch (Exception exception) { Errors.Add(exception); }
+            }
+        }
     }
 
     private static void TooltipPointerOwnershipAndReset()

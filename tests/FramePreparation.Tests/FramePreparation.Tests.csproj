@@ -5,6 +5,8 @@
     <Nullable>disable</Nullable>
     <DefineConstants>$(DefineConstants);NATIVE_GODOT</DefineConstants>
     <DefineConstants Condition="'$(LegacyTreasureShape)' == 'true'">$(DefineConstants);LEGACY_TREASURE_SHAPE</DefineConstants>
+    <DefineConstants Condition="'$(TreasureHolderLayoutShape)' == 'true'">$(DefineConstants);TREASURE_HOLDER_LAYOUT_SHAPE</DefineConstants>
+    <DefineConstants Condition="'$(Sts2Target1130)' == 'true'">$(DefineConstants);STS2_TARGET_1130</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../STS2AndroidPortCompat/Patches/ShaderCompatibilityPatches.cs" Link="ShaderCompatibilityPatches.cs" />

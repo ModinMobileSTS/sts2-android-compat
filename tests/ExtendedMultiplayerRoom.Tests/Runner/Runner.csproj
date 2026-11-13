@@ -4,9 +4,11 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <PatchSource Condition="'$(PatchSource)' == ''">$(MSBuildThisFileDirectory)../../../STS2AndroidPortCompat/Patches/ExtendedMultiplayerRoomPatches.cs</PatchSource>
     <DefineConstants Condition="'$(LegacyTreasureShape)' == 'true'">$(DefineConstants);LEGACY_TREASURE_SHAPE</DefineConstants>
+    <DefineConstants Condition="'$(TreasureHolderLayoutShape)' == 'true'">$(DefineConstants);TREASURE_HOLDER_LAYOUT_SHAPE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../../STS2AndroidPortCompat/Patches/ExtendedMultiplayerRoomPatches.cs" Link="ExtendedMultiplayerRoomPatches.cs" />
+    <Compile Include="$(PatchSource)" Link="ExtendedMultiplayerRoomPatches.cs" />
   </ItemGroup>
 </Project>

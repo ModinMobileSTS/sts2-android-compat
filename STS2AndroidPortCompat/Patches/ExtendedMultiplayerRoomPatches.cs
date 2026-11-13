@@ -25,6 +25,8 @@ public static class ExtendedMultiplayerRoomPatches
 
     private static readonly FieldInfo TreasureMultiplayerHoldersField =
         AccessTools.Field(typeof(NTreasureRoomRelicCollection), "_multiplayerHolders");
+    private static readonly FieldInfo TreasureHolderLayoutsField =
+        AccessTools.Field(typeof(NTreasureRoomRelicCollection), "_holderLayouts");
     private static readonly FieldInfo TreasureHoldersInUseField =
         AccessTools.Field(typeof(NTreasureRoomRelicCollection), "_holdersInUse");
     private static readonly FieldInfo TreasureRelicContainerField =
@@ -42,7 +44,7 @@ public static class ExtendedMultiplayerRoomPatches
 
     public static void Apply(Harmony harmony)
     {
-        if (TreasureMultiplayerHoldersField != null
+        if ((TreasureMultiplayerHoldersField != null || TreasureHolderLayoutsField != null)
             && TreasureHoldersInUseField != null
             && TreasureRunStateField != null)
         {
@@ -103,9 +105,18 @@ public static class ExtendedMultiplayerRoomPatches
 
             var currentRelics = RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics;
             var requiredCount = currentRelics?.Count ?? 0;
-            var holders = GetTreasureMultiplayerHolders(__instance);
             var container = GetTreasureRelicContainer(__instance);
-            if (requiredCount <= holders.Count || container == null)
+            if (requiredCount == 0 || container == null)
+                return;
+
+            if (TreasureHolderLayoutsField != null)
+            {
+                EnsureTreasureHolderLayout(__instance, container, requiredCount);
+                return;
+            }
+
+            var holders = GetTreasureMultiplayerHolders(__instance);
+            if (requiredCount <= holders.Count)
                 return;
 
             var originalCount = holders.Count;
@@ -129,6 +140,12 @@ public static class ExtendedMultiplayerRoomPatches
 
     public static void TreasureInitializePostfix(NTreasureRoomRelicCollection __instance)
     {
+        // v0.113 selects authored layouts and initializes its high-resolution
+        // relic children itself. Only overflow layouts need our grid, prepared
+        // by the prefix before vanilla initializes the holders and their reveal.
+        if (TreasureHolderLayoutsField != null)
+            return;
+
         try
         {
             var runState = TreasureRunStateField.GetValue(__instance) as IRunState;
@@ -285,6 +302,47 @@ public static class ExtendedMultiplayerRoomPatches
         // Before v0.108 the scene's Container is only a local in the original _Ready.
         return TreasureRelicContainerField?.GetValue(collection) as Control
             ?? collection.GetNodeOrNull<Control>("Container");
+    }
+
+    private static void EnsureTreasureHolderLayout(
+        NTreasureRoomRelicCollection collection,
+        Control container,
+        int requiredCount)
+    {
+        var layouts = (List<Control>)TreasureHolderLayoutsField.GetValue(collection);
+        if (requiredCount <= layouts.Count
+            && layouts[requiredCount - 1].GetChildCount() == requiredCount)
+            return;
+
+        // Vanilla indexes layouts by relic count minus one. Reserve intermediate
+        // slots, but instantiate holders only for the layout actually requested.
+        while (layouts.Count < requiredCount)
+        {
+            var layout = new Control
+            {
+                Name = "AndroidMultiplayerRelicLayout" + (layouts.Count + 1),
+                Visible = false,
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            container.AddChild(layout);
+            layout.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+            layouts.Add(layout);
+        }
+
+        var selectedLayout = layouts[requiredCount - 1];
+        var holders = selectedLayout.GetChildren().OfType<NTreasureRoomRelicHolder>().ToList();
+        var originalCount = holders.Count;
+        while (holders.Count < requiredCount)
+        {
+            var holder = SceneHelper.Instantiate<NTreasureRoomRelicHolder>(TreasureHolderScene);
+            holder.Name = "AndroidMultiplayerRelicHolder" + (holders.Count + 1);
+            selectedLayout.AddChild(holder);
+            holders.Add(holder);
+        }
+        LayoutTreasureHolders(selectedLayout, holders);
+
+        if (LoggedTreasureHolderCounts.Add(holders.Count))
+            PatchHelper.Log($"Extended treasure relic layout holders from {originalCount} to {holders.Count}");
     }
 
     private static List<NTreasureRoomRelicHolder> GetTreasureMultiplayerHolders(

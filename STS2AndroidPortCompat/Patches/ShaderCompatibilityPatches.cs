@@ -44,7 +44,9 @@ public static class ShaderCompatibilityPatches
         { "res://shaders/overlay_blend.gdshader", "res://shaders/mobile_compat/overlay_blend_compat.gdshader" },
 
         // Public high-coverage variants.
+#if !STS2_TARGET_1130
         { "res://shaders/blur/Blur.gdshader", "res://shaders/mobile_compat/card_portrait_blur_compat.gdshader" },
+#endif
         { "res://shaders/vfx/vfx_water_reflection.gdshader", "res://shaders/mobile_compat/water_reflection_compat.gdshader" },
         { "res://shaders/vfx/common/vfx_flipbook_shader.gdshader", "res://shaders/mobile_compat/flipbook_compat.gdshader" },
         { "res://shaders/vfx/common/vfx_row_flipbook_shader.gdshader", "res://shaders/mobile_compat/row_flipbook_compat.gdshader" },
@@ -55,6 +57,7 @@ public static class ShaderCompatibilityPatches
         { "res://scenes/backgrounds/vantom_boss/oil.gdshader", "res://shaders/mobile_compat/oil_compat.gdshader" },
     };
 
+#if !STS2_TARGET_1130
     // The ordinary canvas-group mask blur is intentionally excluded.  It is
     // the Ancient-card rotated CanvasGroup/mask/alpha path; replacing it with
     // a generic blur loses the card and was observed as a solid white face.
@@ -63,6 +66,7 @@ public static class ShaderCompatibilityPatches
         { "res://scenes/cards/card_portrait_blur_material.tres", "res://shaders/mobile_compat/card_portrait_blur_compat.gdshader" },
         { "res://scenes/cards/card_canvas_group_blur_material.tres", "res://shaders/mobile_compat/card_canvas_group_blur_compat.gdshader" },
     };
+#endif
 
     // Hashes are generated shader code bodies from the v0.111.0 payload audit.
     // The path check below is deliberately separate: a user MOD must not get a
@@ -97,9 +101,13 @@ public static class ShaderCompatibilityPatches
         PatchHelper.Patch(harmony, typeof(NGame), "_Ready", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(GameReadyPostfix)));
         PatchHelper.Patch(harmony, typeof(AssetCache), "GetMaterial", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(GetMaterialPostfix)));
         PatchHelper.Patch(harmony, typeof(NMainMenu), "_Ready", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(MainMenuReadyPostfix)));
+#if !STS2_TARGET_1130
         PatchHelper.Patch(harmony, typeof(NEpochSlot), "_Ready", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(EpochSlotReadyPostfix)));
+#endif
         PatchHelper.Patch(harmony, typeof(NRadialBlurVfx), "_Ready", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(RadialBlurReadyPostfix)));
+#if !STS2_TARGET_1130
         PatchHelper.Patch(harmony, typeof(NCard), "Reload", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(CardReloadPostfix)));
+#endif
         PatchHelper.Patch(harmony, typeof(NEnergyCounter), "Create", postfix: PatchHelper.Method(typeof(ShaderCompatibilityPatches), nameof(EnergyCounterCreatePostfix)));
     }
 
@@ -167,6 +175,7 @@ public static class ShaderCompatibilityPatches
         try
         {
             EnsureOverlayPackLoadedForDiagnostics();
+#if !STS2_TARGET_1130
             if (MaterialOverrides.TryGetValue(path ?? string.Empty, out var materialReplacement))
             {
                 // The same cached material serves the Ancient-card rotated mask
@@ -177,6 +186,7 @@ public static class ShaderCompatibilityPatches
                     __result = duplicate;
                 return;
             }
+#endif
             if (TryResolveReplacement(shaderMaterial.Shader, shaderMaterial.ResourcePath, out var replacementPath)
                 && TryCreateReplacement(shaderMaterial, replacementPath, out var replacement))
             {
@@ -197,6 +207,7 @@ public static class ShaderCompatibilityPatches
         ReplaceCachedField(__instance, "_blur", "BlurBackstop");
     }
 
+#if !STS2_TARGET_1130
     public static void EpochSlotReadyPostfix(NEpochSlot __instance)
     {
         if (!IsEnabled())
@@ -204,6 +215,7 @@ public static class ShaderCompatibilityPatches
         EnsureOverlayPackLoadedForDiagnostics();
         ReplaceCachedField(__instance, "_blurShader", "%Blur");
     }
+#endif
 
     public static void RadialBlurReadyPostfix(NRadialBlurVfx __instance)
     {
@@ -256,6 +268,7 @@ public static class ShaderCompatibilityPatches
         }
     }
 
+#if !STS2_TARGET_1130
     public static void CardReloadPostfix(object __instance)
     {
         if (!_enabled || !IsEnabled() || __instance == null)
@@ -271,6 +284,7 @@ public static class ShaderCompatibilityPatches
             PatchHelper.Log($"Shader compatibility card material repair failed: {exception.Message}");
         }
     }
+#endif
 
 
     private static void OnNodeAdded(Node node)
@@ -379,8 +393,10 @@ public static class ShaderCompatibilityPatches
             return;
         if (node is NMainMenu mainMenu)
             MainMenuReadyPostfix(mainMenu);
+#if !STS2_TARGET_1130
         else if (node is NEpochSlot epochSlot)
             EpochSlotReadyPostfix(epochSlot);
+#endif
         else if (node is NRadialBlurVfx radialBlur)
             RadialBlurReadyPostfix(radialBlur);
         else if (node is NEnergyCounter energyCounter)
@@ -404,6 +420,14 @@ public static class ShaderCompatibilityPatches
         replacementPath = null;
         if (shader == null)
             return false;
+#if STS2_TARGET_1130
+        // v113 replaced the step-based blur with per-instance atlas bounds and
+        // screen-space derivatives. Keep its two-pass/Ancient-glass contract;
+        // the older mobile variants cannot consume those parameters.
+        if (shader.ResourcePath == "res://shaders/blur/Blur.gdshader"
+            || shader.ResourcePath == "res://shaders/blur/canvas_group_mask_blur.gdshader")
+            return false;
+#endif
         var resourcePath = shader.ResourcePath ?? string.Empty;
         if (ShaderOverrides.TryGetValue(resourcePath, out replacementPath))
             return true;
@@ -504,6 +528,7 @@ public static class ShaderCompatibilityPatches
         }
     }
 
+#if !STS2_TARGET_1130
     private static void ReplaceCardField(object instance, string fieldName, string firstNodeFieldName, string secondNodeFieldName, string replacementPath, bool skipMasked = false)
     {
         var field = AccessTools.Field(instance.GetType(), fieldName);
@@ -531,4 +556,5 @@ public static class ShaderCompatibilityPatches
         if (nodeField?.GetValue(instance) is CanvasItem item && ReferenceEquals(item.Material, original))
             item.Material = replacement;
     }
+#endif
 }

@@ -25,7 +25,7 @@ ARCHIVED_TARGET_ROOT="${COMPAT_ARCHIVED_TARGET_ROOT:-$ROOT/targets/archived}"
 OUT_ROOT="${COMPAT_MATRIX_OUT_ROOT:-$ROOT/dist/compat-matrix}"
 PACK_ID="${COMPAT_MATRIX_PACK_ID:-sts2-android-compat}"
 DISPLAY_NAME="${COMPAT_MATRIX_DISPLAY_NAME:-STS2 Android Compatibility}"
-COMPAT_VERSION="${COMPAT_MATRIX_VERSION:-0.6.0-dev}"
+COMPAT_VERSION="${COMPAT_MATRIX_VERSION:-0.7.0-dev}"
 CHANNEL="${COMPAT_MATRIX_CHANNEL:-mixed}"
 TARGET_FILTER=""
 INCLUDE_ARCHIVED="${BUILD_ARCHIVED_TARGETS:-0}"
@@ -109,6 +109,13 @@ compat_reference_dir_for_flavor() {
       ;;
     original-v0.111.0)
       resolve_path "${STS2_ORIGINAL_V1110_REFERENCE_DIR:-$ROOT/refs/original-v0.111.0}"
+      ;;
+    original-v0.113.0)
+      local reference_dir="${STS2_ORIGINAL_V1130_REFERENCE_DIR:-}"
+      if [[ -z "$reference_dir" && -n "${STS2_ORIGINAL_V1130_ROOT:-}" ]]; then
+        reference_dir="$STS2_ORIGINAL_V1130_ROOT/.godot/mono/temp/bin/Debug"
+      fi
+      resolve_path "${reference_dir:-$ROOT/refs/original-v0.113.0}"
       ;;
     runtime|*)
       resolve_path "${STS2_RUNTIME_REFERENCE_DIR:-}"

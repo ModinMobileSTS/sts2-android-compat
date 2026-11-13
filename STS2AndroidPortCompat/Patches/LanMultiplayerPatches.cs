@@ -54,7 +54,7 @@ public static class LanMultiplayerPatches
         if (!ShouldApplyLocalLanPatches())
             return;
 
-#if !STS2_TARGET_1100 && !STS2_TARGET_1110
+#if !STS2_TARGET_1100 && !STS2_TARGET_1110 && !STS2_TARGET_1130
         PatchHelper.Patch(harmony, typeof(InitialGameInfoMessage), "Basic", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(InitialGameInfoBasicPostfix)));
 #endif
         PatchHelper.Patch(harmony, typeof(ModManager), "GetGameplayRelevantModNameList", postfix: PatchHelper.Method(typeof(LanMultiplayerPatches), nameof(ModNameListPostfix)));
@@ -231,11 +231,18 @@ public static class LanMultiplayerPatches
         }
     }
 
-    public static bool HostSubmenuStartHostAsyncPrefix(GameMode gameMode, Control loadingOverlay, NSubmenuStack stack, ref Task __result)
+    public static bool HostSubmenuStartHostAsyncPrefix(
+#if STS2_TARGET_1130
+        bool isCustom,
+#endif
+        GameMode gameMode, Control loadingOverlay, NSubmenuStack stack, ref Task __result)
     {
         if (SteamInitializer.Initialized && !CommandLineHelper.HasArg("fastmp"))
             return true;
-        __result = StartHostFromSubmenuAsync(gameMode, loadingOverlay, stack);
+#if !STS2_TARGET_1130
+        const bool isCustom = false;
+#endif
+        __result = StartHostFromSubmenuAsync(gameMode, loadingOverlay, stack, isCustom);
         return false;
     }
 
@@ -766,39 +773,20 @@ public static class LanMultiplayerPatches
         hostInput.Text = host;
         portInput.Text = port.ToString();
         SaveJoinEndpoint(host, port);
-#if STS2_TARGET_1110
-        var joinFlow = new JoinFlow(new NetClientGameService(PeerVersionInfo.LocalDefault()));
-#elif STS2_TARGET_1080 || STS2_TARGET_1090 || STS2_TARGET_1100
-        var joinFlow = new JoinFlow(new NetClientGameService());
-#else
-        var joinFlow = new JoinFlow();
-#endif
-        AccessTools.Field(typeof(NJoinFriendScreen), "_currentJoinFlow")?.SetValue(screen, joinFlow);
-        await InvokeJoinGameAsync(screen, joinFlow, new ENetClientConnectionInitializer(GetOrCreateLocalPeerId(), host, port));
-    }
-
-    private static async Task InvokeJoinGameAsync(NJoinFriendScreen screen, JoinFlow joinFlow, IClientConnectionInitializer initializer)
-    {
-        var method = typeof(NJoinFriendScreen).GetMethod("JoinGameAsync", BindingFlags.Public | BindingFlags.Instance);
-        if (method != null)
-        {
-            await (Task)method.Invoke(screen, new object[] { initializer });
-            return;
-        }
-        var result = await joinFlow.Begin(initializer, screen.GetTree());
-        throw new NotSupportedException($"JoinGameAsync reflection target missing; manual fallback for state {result.sessionState} is not implemented.");
+        // The payload owns JoinFlow creation, cancellation, handshake and mode routing.
+        await screen.JoinGameAsync(new ENetClientConnectionInitializer(GetOrCreateLocalPeerId(), host, port));
     }
 
     private static NetHostGameService CreateNetHostGameService()
     {
-#if STS2_TARGET_1110
+#if STS2_TARGET_1110 || STS2_TARGET_1130
         return new NetHostGameService(PeerVersionInfo.LocalDefault());
 #else
         return new NetHostGameService();
 #endif
     }
 
-    private static Task StartHostFromSubmenuAsync(GameMode gameMode, Control loadingOverlay, NSubmenuStack stack)
+    private static Task StartHostFromSubmenuAsync(GameMode gameMode, Control loadingOverlay, NSubmenuStack stack, bool isCustom)
     {
         var platformType = PlatformType.None;
         var hostCapacity = GetHostCapacityForPlatform(platformType, GetConfiguredHostMaxPlayers());
@@ -809,6 +797,15 @@ public static class LanMultiplayerPatches
             var error = netService.StartENetHost(DefaultPort, hostCapacity);
             if (!error.HasValue)
             {
+#if STS2_TARGET_1130
+                if (isCustom)
+                {
+                    var custom = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.CustomRun.NCustomRunScreen>();
+                    custom.InitializeMultiplayerAsHost(netService, hostCapacity);
+                    stack.Push(custom);
+                }
+                else
+#endif
                 switch (gameMode)
                 {
                     case GameMode.Standard:
@@ -821,11 +818,26 @@ public static class LanMultiplayerPatches
                         daily.InitializeMultiplayerAsHost(netService);
                         stack.Push(daily);
                         break;
+#if STS2_TARGET_1130
+                    case GameMode.Blitz:
+                        var blitz = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.Blitz.NBlitzScreen>();
+                        blitz.InitializeMultiplayerAsHost(netService, hostCapacity);
+                        stack.Push(blitz);
+                        break;
+                    case GameMode.Dread:
+                        var dread = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.Dread.NDreadScreen>();
+                        dread.InitializeMultiplayerAsHost(netService, hostCapacity);
+                        stack.Push(dread);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(gameMode), gameMode, "Invalid LAN game mode.");
+#else
                     default:
                         var custom = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.CustomRun.NCustomRunScreen>();
                         custom.InitializeMultiplayerAsHost(netService, hostCapacity);
                         stack.Push(custom);
                         break;
+#endif
                 }
                 ShowLanHostInfo();
             }
@@ -862,23 +874,29 @@ public static class LanMultiplayerPatches
             var error = netService.StartENetHost(DefaultPort, hostCapacity);
             if (!error.HasValue)
             {
-                switch (GetRunGameMode(run))
+                var gameMode = GetRunGameMode(run);
+#if STS2_TARGET_1130
+                var isCustom = run.IsCustomGame;
+#else
+                var isCustom = gameMode == GameMode.Custom;
+#endif
+                if (gameMode == GameMode.Daily)
                 {
-                    case GameMode.Daily:
-                        var daily = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.DailyRun.NDailyRunLoadScreen>();
-                        daily.InitializeAsHost(netService, run);
-                        stack.Push(daily);
-                        break;
-                    case GameMode.Custom:
-                        var custom = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.CustomRun.NCustomRunLoadScreen>();
-                        custom.InitializeAsHost(netService, run);
-                        stack.Push(custom);
-                        break;
-                    default:
-                        var standard = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect.NMultiplayerLoadGameScreen>();
-                        standard.InitializeAsHost(netService, run);
-                        stack.Push(standard);
-                        break;
+                    var daily = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.DailyRun.NDailyRunLoadScreen>();
+                    daily.InitializeAsHost(netService, run);
+                    stack.Push(daily);
+                }
+                else if (isCustom)
+                {
+                    var custom = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.CustomRun.NCustomRunLoadScreen>();
+                    custom.InitializeAsHost(netService, run);
+                    stack.Push(custom);
+                }
+                else
+                {
+                    var standard = stack.GetSubmenuType<MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect.NMultiplayerLoadGameScreen>();
+                    standard.InitializeAsHost(netService, run);
+                    stack.Push(standard);
                 }
                 ShowLanHostInfo();
             }

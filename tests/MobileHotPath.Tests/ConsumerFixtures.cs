@@ -5,9 +5,11 @@ using System.Threading.Tasks;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace Godot
 {
@@ -168,6 +170,9 @@ namespace MegaCrit.Sts2.Core.Runs
     {
         public static readonly RunManager Instance = new();
         public readonly HoveredModelTracker HoveredModelTracker = new();
+#if STS2_TARGET_1130
+        public readonly MegaCrit.Sts2.Core.Multiplayer.Game.MerchantSynchronizer MerchantSynchronizer = new();
+#endif
     }
     public class HoveredModelTracker
     {
@@ -211,15 +216,78 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.CardSelection
 }
 namespace MegaCrit.Sts2.Core.Entities.Merchant
 {
-    public class MerchantEntry { public bool IsStocked = true; }
+    public enum MerchantItem { Card, Relic, Potion, CardRemoval }
+
+    public class MerchantInventory
+    {
+        public int Gold = 100;
+        public bool PotionBeltFull;
+        public bool PurchaseInProgress;
+        public readonly List<MerchantItem> PurchasedItems = new();
+        public event Action PurchaseCompleted;
+        public void CompletePurchase() { PurchaseCompleted?.Invoke(); }
+    }
+
+    public class MerchantEntry
+    {
+        public readonly MerchantInventory Inventory;
+        public readonly MerchantItem Item;
+        public readonly int Cost = 10;
+        public bool IsStocked = true;
+        public bool RestockAfterPurchase;
+        public int Purchases;
+        public Exception PurchaseException;
+        public TaskCompletionSource<bool> PurchaseDecision;
+
+        public MerchantEntry(MerchantInventory inventory, MerchantItem item) { Inventory = inventory; Item = item; }
+
+#if STS2_TARGET_1130
+        public Task<bool> OnTryPurchaseUnsynchronized(MerchantInventory inventory, bool ignoreCost = false) => Purchase(inventory, ignoreCost);
+#else
+        public Task<bool> OnTryPurchaseWrapper(MerchantInventory inventory, bool ignoreCost = false) => Purchase(inventory, ignoreCost);
+#endif
+
+        private async Task<bool> Purchase(MerchantInventory inventory, bool ignoreCost)
+        {
+            if (!ReferenceEquals(inventory, Inventory)) throw new InvalidOperationException("Wrong merchant inventory.");
+            if (PurchaseException != null) throw PurchaseException;
+            if (!IsStocked || (!ignoreCost && inventory.Gold < Cost) || (Item == MerchantItem.Potion && inventory.PotionBeltFull))
+                return false;
+            if (PurchaseDecision != null && !await PurchaseDecision.Task)
+                return false;
+            if (!ignoreCost) inventory.Gold -= Cost;
+            inventory.PurchasedItems.Add(Item);
+            Purchases++;
+            IsStocked = RestockAfterPurchase && Item != MerchantItem.CardRemoval;
+            inventory.CompletePurchase();
+            return true;
+        }
+    }
 }
+#if STS2_TARGET_1130
+namespace MegaCrit.Sts2.Core.Multiplayer.Game
+{
+    public class MerchantSynchronizer
+    {
+        public async Task<bool> PurchaseLocalEntry(MerchantEntry entry)
+        {
+            var inventory = entry.Inventory;
+            if (inventory.PurchaseInProgress) return false;
+            inventory.PurchaseInProgress = true;
+            try { return await entry.OnTryPurchaseUnsynchronized(inventory); }
+            finally { inventory.PurchaseInProgress = false; }
+        }
+    }
+}
+#endif
 namespace MegaCrit.Sts2.Core.Nodes.Screens.Shops
 {
     public class NMerchantInventory : Control
     {
         private bool _isInputBlocked;
         public bool IsOpen = true;
-        public object Inventory = new();
+        public readonly MerchantInventory Inventory = new();
+        public NMerchantInventory() { Inventory.PurchaseCompleted += OnPurchaseCompleted; }
         [MethodImpl(MethodImplOptions.NoInlining)] public void _Ready() { }
         [MethodImpl(MethodImplOptions.NoInlining)] public void Open() { IsOpen = true; }
         [MethodImpl(MethodImplOptions.NoInlining)] public void Close() { IsOpen = false; }
@@ -228,14 +296,18 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.Shops
         [MethodImpl(MethodImplOptions.NoInlining)] public void UnblockInput() { _isInputBlocked = false; }
         [MethodImpl(MethodImplOptions.NoInlining)] public void OnActiveScreenUpdated() { }
     }
-    public class NMerchantSlot : Control
+    public abstract class NMerchantSlot : Control
     {
         private readonly NMerchantInventory _merchantRug;
         private bool _isHovered = true;
         private bool _ignoreMouseRelease;
-        public MegaCrit.Sts2.Core.Entities.Merchant.MerchantEntry Entry = new();
-        public int Purchases;
-        public NMerchantSlot(NMerchantInventory inventory) { _merchantRug = inventory; }
+        public MerchantEntry Entry { get; }
+        public int Purchases => Entry.Purchases;
+        protected NMerchantSlot(NMerchantInventory inventory, MerchantItem item)
+        {
+            _merchantRug = inventory;
+            Entry = new MerchantEntry(inventory.Inventory, item);
+        }
         [MethodImpl(MethodImplOptions.NoInlining)]
         public void _GuiInput(InputEvent inputEvent) { if (inputEvent.IsActionPressed("select")) OnSelected().GetAwaiter().GetResult(); }
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -244,28 +316,51 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.Shops
             if (_isHovered && !_ignoreMouseRelease && inputEvent is InputEventMouseButton { ButtonIndex: MouseButton.Left })
                 OnSelected().GetAwaiter().GetResult();
         }
-        [MethodImpl(MethodImplOptions.NoInlining)] public Task OnSelected() => OnTryPurchase(_merchantRug.Inventory);
-        [MethodImpl(MethodImplOptions.NoInlining)] protected virtual Task OnTryPurchase(object inventory) { Purchases++; return Task.CompletedTask; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private async Task OnSelected()
+        {
+            ClearHoverTip();
+#if STS2_TARGET_1130
+            await RunManager.Instance.MerchantSynchronizer.PurchaseLocalEntry(Entry);
+#else
+            await OnTryPurchase(_merchantRug.Inventory);
+#endif
+        }
+#if !STS2_TARGET_1130
+        protected abstract Task OnTryPurchase(MerchantInventory inventory);
+#endif
         private void ClearHoverTip() { }
     }
     public class NMerchantCard : NMerchantSlot
     {
-        public NMerchantCard(NMerchantInventory inventory) : base(inventory) { }
-        [MethodImpl(MethodImplOptions.NoInlining)] protected override Task OnTryPurchase(object inventory) => base.OnTryPurchase(inventory);
+        public NMerchantCard(NMerchantInventory inventory) : base(inventory, MerchantItem.Card) { }
+#if !STS2_TARGET_1130
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        protected override async Task OnTryPurchase(MerchantInventory inventory) { await Entry.OnTryPurchaseWrapper(inventory); }
+#endif
     }
     public class NMerchantRelic : NMerchantSlot
     {
-        public NMerchantRelic(NMerchantInventory inventory) : base(inventory) { }
-        [MethodImpl(MethodImplOptions.NoInlining)] protected override Task OnTryPurchase(object inventory) => base.OnTryPurchase(inventory);
+        public NMerchantRelic(NMerchantInventory inventory) : base(inventory, MerchantItem.Relic) { }
+#if !STS2_TARGET_1130
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        protected override async Task OnTryPurchase(MerchantInventory inventory) { await Entry.OnTryPurchaseWrapper(inventory); }
+#endif
     }
     public class NMerchantPotion : NMerchantSlot
     {
-        public NMerchantPotion(NMerchantInventory inventory) : base(inventory) { }
-        [MethodImpl(MethodImplOptions.NoInlining)] protected override Task OnTryPurchase(object inventory) => base.OnTryPurchase(inventory);
+        public NMerchantPotion(NMerchantInventory inventory) : base(inventory, MerchantItem.Potion) { }
+#if !STS2_TARGET_1130
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        protected override async Task OnTryPurchase(MerchantInventory inventory) { await Entry.OnTryPurchaseWrapper(inventory); }
+#endif
     }
     public class NMerchantCardRemoval : NMerchantSlot
     {
-        public NMerchantCardRemoval(NMerchantInventory inventory) : base(inventory) { }
-        [MethodImpl(MethodImplOptions.NoInlining)] protected override Task OnTryPurchase(object inventory) => base.OnTryPurchase(inventory);
+        public NMerchantCardRemoval(NMerchantInventory inventory) : base(inventory, MerchantItem.CardRemoval) { }
+#if !STS2_TARGET_1130
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        protected override async Task OnTryPurchase(MerchantInventory inventory) { await Entry.OnTryPurchaseWrapper(inventory); }
+#endif
     }
 }

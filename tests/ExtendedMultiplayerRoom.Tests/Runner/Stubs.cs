@@ -46,6 +46,7 @@ namespace Godot
     public class Node : GodotObject
     {
         private readonly List<Node> _children = new List<Node>();
+        private Node _parent;
 
         public string Name { get; set; }
         public IReadOnlyList<Node> Children => _children;
@@ -53,10 +54,21 @@ namespace Godot
         public void AddChild(Node child)
         {
             if (child != null)
+            {
                 _children.Add(child);
+                child._parent = this;
+            }
         }
 
-        public void RemoveChild(Node child) => _children.Remove(child);
+        public void RemoveChild(Node child)
+        {
+            if (_children.Remove(child))
+                child._parent = null;
+        }
+
+        public Node GetParent() => _parent;
+        public IReadOnlyList<Node> GetChildren() => _children;
+        public int GetChildCount() => _children.Count;
 
         public T GetNodeOrNull<T>(string path) where T : Node =>
             _children.FirstOrDefault(child => child.Name == path) as T;
@@ -80,6 +92,19 @@ namespace Godot
             Stop,
             Pass,
             Ignore
+        }
+
+        public enum LayoutPreset
+        {
+            FullRect
+        }
+
+        public void SetAnchorsAndOffsetsPreset(LayoutPreset preset)
+        {
+            AnchorLeft = AnchorTop = 0f;
+            AnchorRight = AnchorBottom = 1f;
+            Position = default;
+            Size = (GetParent() as Control)?.Size ?? default;
         }
 
         public bool Visible { get; set; } = true;
@@ -217,22 +242,55 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic
     using MegaCrit.Sts2.Core.Context;
     using MegaCrit.Sts2.Core.Multiplayer.Game;
 
+    public partial class SyntheticTreasureRelic : Control
+    {
+        public object Model { get; set; }
+        public bool UsesLargeIcon { get; set; }
+    }
+
     public partial class NTreasureRoomRelicHolder : Control
     {
         public NTreasureRoomRelicHolder()
         {
             Size = new Vector2(136f, 136f);
+#if !TREASURE_HOLDER_LAYOUT_SHAPE
+            Relic = new SyntheticTreasureRelic { Scale = Vector2.One * 2f };
+            AddChild(Relic);
+#endif
 #if NATIVE_GODOT
             FocusMode = FocusModeEnum.All;
 #endif
         }
-        public object Relic { get; set; }
+
+        public SyntheticTreasureRelic Relic { get; private set; }
+        public int Index { get; set; }
+        public int InitializationCount { get; private set; }
+
+        public void Initialize(object relic, IRunState runState)
+        {
+#if TREASURE_HOLDER_LAYOUT_SHAPE
+            // v0.113 creates the Large icon during Initialize, not in the scene.
+            Relic = new SyntheticTreasureRelic
+            {
+                UsesLargeIcon = true,
+                Position = new Vector2(68f, 68f),
+                Scale = Vector2.One * 2f
+            };
+            AddChild(Relic);
+#endif
+            Relic.Model = relic;
+            InitializationCount++;
+        }
     }
 
     public partial class NTreasureRoomRelicCollection : Control
     {
+#if TREASURE_HOLDER_LAYOUT_SHAPE
+        private readonly List<Control> _holderLayouts = new List<Control>();
+#else
         private readonly List<NTreasureRoomRelicHolder> _multiplayerHolders = new List<NTreasureRoomRelicHolder>();
-        private readonly List<NTreasureRoomRelicHolder> _holdersInUse = new List<NTreasureRoomRelicHolder>();
+#endif
+        private List<NTreasureRoomRelicHolder> _holdersInUse = new List<NTreasureRoomRelicHolder>();
 #if !LEGACY_TREASURE_SHAPE
         private readonly Control _relicContainer;
 #endif
@@ -248,24 +306,55 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic
             _relicContainer = container;
 #endif
             AddChild(container);
+#if TREASURE_HOLDER_LAYOUT_SHAPE
+            // Six authored layouts, not an automatically growing holder list.
+            for (var count = 1; count <= 6; count++)
+            {
+                var layout = new Control { Name = "Layout" + count, Visible = false };
+                container.AddChild(layout);
+                layout.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+                _holderLayouts.Add(layout);
+                for (var index = 0; index < count; index++)
+                {
+                    var holder = CreateAuthoredHolder(index);
+                    holder.Position = new Vector2(80f + index * 120f, 100f + index % 2 * 70f);
+                    if (count == 1)
+                    {
+                        holder.Size = Vector2.One * 204f;
+                        holder.PivotOffset = holder.Size * 0.5f;
+                    }
+                    layout.AddChild(holder);
+                }
+            }
+#else
             for (var index = 0; index < 4; index++)
             {
-                var holder = new NTreasureRoomRelicHolder
-                {
-                    Name = "MultiplayerRelicHolder" + (index + 1),
-                    AnchorLeft = 0.5f,
-                    AnchorTop = 0.5f,
-                    AnchorRight = 0.5f,
-                    AnchorBottom = 0.5f
-                };
+                var holder = CreateAuthoredHolder(index);
                 container.AddChild(holder);
                 _multiplayerHolders.Add(holder);
             }
+#endif
         }
 
+        private static NTreasureRoomRelicHolder CreateAuthoredHolder(int index) => new NTreasureRoomRelicHolder
+        {
+            Name = "MultiplayerRelicHolder" + (index + 1),
+            AnchorLeft = 0.5f,
+            AnchorTop = 0.5f,
+            AnchorRight = 0.5f,
+            AnchorBottom = 0.5f,
+            PivotOffset = new Vector2(68f, 68f),
+            Rotation = 0.01f * (index + 1)
+        };
+
+#if TREASURE_HOLDER_LAYOUT_SHAPE
+        public IReadOnlyList<Control> HolderLayouts => _holderLayouts;
+#else
         public IReadOnlyList<NTreasureRoomRelicHolder> MultiplayerHolders => _multiplayerHolders;
+#endif
         public IReadOnlyList<NTreasureRoomRelicHolder> HoldersInUse => _holdersInUse;
-        public Control DefaultFocusedControl => _holdersInUse[_runState.GetPlayerSlotIndex(LocalContext.GetMe(_runState.Players))];
+        public Control DefaultFocusedControl => _holdersInUse.Count == 0 ? null
+            : _holdersInUse[_runState.GetPlayerSlotIndex(LocalContext.GetMe(_runState.Players))];
         public void InitializeRelics() => SimulateVanillaInitializeRelics(RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics.Count);
         public bool AwardsFinished { get; private set; }
         public List<object> ProcessedRelics { get; } = new();
@@ -275,23 +364,45 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic
         {
             foreach (var result in results)
             {
-                var holder = _holdersInUse.First(candidate => ReferenceEquals(candidate.Relic, result.Relic));
-                if (result.Recipient != null) result.Recipient.AwardedRelics.Add(holder.Relic);
-                ProcessedRelics.Add(holder.Relic);
+                var holder = _holdersInUse.First(candidate => ReferenceEquals(candidate.Relic?.Model, result.Relic));
+                if (result.Recipient != null) result.Recipient.AwardedRelics.Add(holder.Relic.Model);
+                ProcessedRelics.Add(holder.Relic.Model);
             }
             AwardsFinished = true;
         }
 
         public void SimulateVanillaInitializeRelics(int visibleCount)
         {
-            _holdersInUse.Clear();
             var relics = RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics;
+#if TREASURE_HOLDER_LAYOUT_SHAPE
+            if (visibleCount == 0)
+            {
+                foreach (var layout in _holderLayouts)
+                    layout.Visible = false;
+                return;
+            }
+            for (var index = 0; index < _holderLayouts.Count; index++)
+            {
+                _holderLayouts[index].Visible = index == visibleCount - 1;
+                if (_holderLayouts[index].Visible)
+                    _holdersInUse = _holderLayouts[index].GetChildren().OfType<NTreasureRoomRelicHolder>().ToList();
+            }
+            for (var index = 0; index < _holdersInUse.Count; index++)
+            {
+                _holdersInUse[index].Initialize(relics[index], _runState);
+                _holdersInUse[index].Index = index;
+            }
+#else
+            _holdersInUse.Clear();
             foreach (var holder in _multiplayerHolders)
             {
                 holder.Visible = _holdersInUse.Count < visibleCount;
-                holder.Relic = holder.Visible ? relics[_holdersInUse.Count] : null;
+                if (holder.Visible)
+                    holder.Initialize(relics[_holdersInUse.Count], _runState);
+                holder.Index = _holdersInUse.Count;
                 _holdersInUse.Add(holder);
             }
+#endif
         }
     }
 
@@ -347,16 +458,23 @@ namespace MegaCrit.Sts2.Core.Nodes.Rooms
         }
 
         public IReadOnlyList<Control> CharacterContainers => _characterContainers;
+        public List<Control> CreatedCharacters { get; } = new();
 #if NATIVE_GODOT
         public override void _Ready() { }
 #else
         public void _Ready() { }
 #endif
 
-        public void SimulateVanillaFixedContainerAppend()
+        public void SimulateVanillaReady()
         {
             for (var index = 0; index < 4; index++)
                 _characterContainers.Add(GetNode<Control>("BgContainer/Character_" + (index + 1)));
+            for (var index = 0; index < _runState.Players.Count; index++)
+            {
+                var character = new Control { Name = "PlayerCharacter" + (index + 1) };
+                _characterContainers[index].AddChild(character);
+                CreatedCharacters.Add(character);
+            }
         }
     }
 }

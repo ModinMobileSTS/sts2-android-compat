@@ -5,6 +5,8 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <DefineConstants Condition="'$(LegacyIntent)' != 'true'">$(DefineConstants);MODERN_INTENT</DefineConstants>
+    <DefineConstants Condition="'$(MerchantV113)' == 'true'">$(DefineConstants);STS2_TARGET_1130</DefineConstants>
+    <MerchantConfirmationSource Condition="'$(MerchantConfirmationSource)' == ''">../../STS2AndroidPortCompat/Patches/MerchantSelectionConfirmationPatches.cs</MerchantConfirmationSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../STS2AndroidPortCompat/Patches/MobileTooltipPatches.cs" Link="MobileTooltipPatches.cs" />
@@ -12,7 +14,7 @@
     <Compile Include="../../STS2AndroidPortCompat/Patches/TouchInputPatches.cs" Link="TouchInputPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/MobileTapPreviewPatches.cs" Link="MobileTapPreviewPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/MobileSelectionConfirmationPatches.cs" Link="MobileSelectionConfirmationPatches.cs" />
-    <Compile Include="../../STS2AndroidPortCompat/Patches/MerchantSelectionConfirmationPatches.cs" Link="MerchantSelectionConfirmationPatches.cs" />
+    <Compile Include="$(MerchantConfirmationSource)" Link="MerchantSelectionConfirmationPatches.cs" />
     <Reference Include="0Harmony"><HintPath>$(HarmonyReferenceDir)/0Harmony.dll</HintPath></Reference>
     <Reference Include="MonoMod.Core"><HintPath>$(HarmonyReferenceDir)/MonoMod.Core.dll</HintPath></Reference>
     <Reference Include="MonoMod.Utils"><HintPath>$(HarmonyReferenceDir)/MonoMod.Utils.dll</HintPath></Reference>

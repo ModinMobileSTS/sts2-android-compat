@@ -37,9 +37,9 @@ public static class AndroidAssetCacheLifecyclePatches
             return;
 
         // RemoveAndGetResource has already removed the path from the original
-        // cache. Both of its callers only use the returned value to Dispose it,
-        // so returning null preserves eviction while leaving Resource lifetime
-        // to Godot RefCounted ownership and managed references.
+        // cache. Its callers only route the returned value to explicit disposal
+        // (immediately, or at frame end in v113), so returning null preserves
+        // eviction while leaving lifetime to Godot ownership and managed references.
         __result = null;
     }
 

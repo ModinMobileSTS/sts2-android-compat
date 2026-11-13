@@ -386,7 +386,11 @@ namespace STS2Mobile
     {
         public static void Log(string message) => Console.WriteLine(message);
         public static MethodInfo Method(Type type, string name) => AccessTools.Method(type, name);
-        public static void Patch(Harmony harmony, Type type, string name, MethodInfo prefix = null, MethodInfo postfix = null) =>
-            harmony.Patch(AccessTools.Method(type, name), prefix: prefix == null ? null : new HarmonyMethod(prefix), postfix: postfix == null ? null : new HarmonyMethod(postfix));
+        public static void Patch(Harmony harmony, Type type, string name, MethodInfo prefix = null, MethodInfo postfix = null)
+        {
+            var target = AccessTools.Method(type, name);
+            if (target == null) return; // Production PatchHelper skips methods removed by newer game targets.
+            harmony.Patch(target, prefix: prefix == null ? null : new HarmonyMethod(prefix), postfix: postfix == null ? null : new HarmonyMethod(postfix));
+        }
     }
 }

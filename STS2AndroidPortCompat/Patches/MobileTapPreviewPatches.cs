@@ -8,6 +8,8 @@ using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
@@ -15,6 +17,7 @@ using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
+using MegaCrit.Sts2.Core.Nodes.Vfx;
 using MegaCrit.Sts2.Core.Runs;
 using STS2Mobile.Android;
 
@@ -29,6 +32,9 @@ public static class MobileTapPreviewPatches
     private static readonly HashSet<int> ConnectedCreatures = new();
     private static readonly HashSet<int> ConnectedHandHolders = new();
     private static readonly MethodInfo StartCardPlayMethod = typeof(NPlayerHand).GetMethod("StartCardPlay", BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(NHandCardHolder), typeof(bool) }, null);
+    private static readonly Func<UnplayableReason, AbstractModel, LocString> GetPlayerDialogueLine =
+        AccessTools.Method(typeof(CardModel).Assembly.GetType("MegaCrit.Sts2.Core.Entities.Cards.UnplayableReasonExtensions"), "GetPlayerDialogueLine")
+            .CreateDelegate<Func<UnplayableReason, AbstractModel, LocString>>();
 
     public static void Apply(Harmony harmony)
     {
@@ -672,7 +678,17 @@ public static class MobileTapPreviewPatches
         try
         {
             if (!model.TryManualPlay(null) && IsSameValidHolder(holder, holder))
-                SetPinned(hand, holder, armDirectDrag: false, log: false);
+            {
+                SuppressHoverUntilExit(holder);
+                // Manual play bypasses NMouseCardPlay's rejection feedback. Reuse
+                // the payload's reason/localization rules without restarting a drag.
+                if (!model.CanPlay(out var reason, out var preventer))
+                {
+                    var dialogue = GetPlayerDialogueLine(reason, preventer);
+                    if (dialogue != null)
+                        NCombatRoom.Instance.CombatVfxContainer.AddChildSafely(NThoughtBubbleVfx.Create(dialogue.GetFormattedText(), model.Owner.Creature, 1.0));
+                }
+            }
         }
         finally
         {

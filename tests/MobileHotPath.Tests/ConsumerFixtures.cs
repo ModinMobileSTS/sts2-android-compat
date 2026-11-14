@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Godot;
@@ -42,7 +43,17 @@ namespace MegaCrit.Sts2.Core.Context
 }
 namespace MegaCrit.Sts2.Core.Entities.Cards
 {
-    public enum TargetType { None, AnyEnemy, AnyPlayer, AnyAlly, TargetedNoCreature }
+    public enum TargetType { None, Self, AnyEnemy, AnyPlayer, AnyAlly, TargetedNoCreature }
+    [Flags] public enum UnplayableReason { None = 0, EnergyCostTooHigh = 1, HasUnplayableKeyword = 2 }
+    internal static class UnplayableReasonExtensions
+    {
+        public static MegaCrit.Sts2.Core.Localization.LocString GetPlayerDialogueLine(this UnplayableReason reason, AbstractModel preventer = null)
+        {
+            if ((reason & UnplayableReason.EnergyCostTooHigh) != 0) return new("NOT_ENOUGH_ENERGY");
+            if ((reason & UnplayableReason.HasUnplayableKeyword) != 0) return new("UNPLAYABLE");
+            return null;
+        }
+    }
     public class CardCreationResult { public CardModel Card; }
 }
 namespace MegaCrit.Sts2.Core.Entities.Creatures
@@ -58,14 +69,62 @@ namespace MegaCrit.Sts2.Core.Entities.Creatures
 }
 namespace MegaCrit.Sts2.Core.Models
 {
-    public class CardModel
+    public class AbstractModel { }
+    public class CardModel : AbstractModel
     {
         public string Id = "fixture-card";
         public TargetType TargetType;
         public Player Owner = new();
         public int ManualPlays;
-        public bool ManualPlaySucceeds = true;
-        public bool TryManualPlay(object target) { ManualPlays++; return ManualPlaySucceeds; }
+        public int ManualPlayAttempts;
+        public int Energy = 3;
+        public int EnergyCost;
+        public bool Unplayable;
+        public bool CanPlay(out UnplayableReason reason, out AbstractModel preventer)
+        {
+            reason = UnplayableReason.None;
+            preventer = null;
+            if (Energy < EnergyCost) reason |= UnplayableReason.EnergyCostTooHigh;
+            if (Unplayable) reason |= UnplayableReason.HasUnplayableKeyword;
+            return reason == UnplayableReason.None;
+        }
+        public bool TryManualPlay(object target)
+        {
+            ManualPlayAttempts++;
+            if (!CanPlay(out _, out _)) return false;
+            Energy -= EnergyCost;
+            ManualPlays++;
+            return true;
+        }
+    }
+}
+namespace MegaCrit.Sts2.Core.Localization
+{
+    public class LocString
+    {
+        private readonly string _text;
+        public LocString(string text) { _text = text; }
+        public string GetFormattedText() => _text;
+    }
+}
+namespace MegaCrit.Sts2.Core.Nodes.Vfx
+{
+    public class NThoughtBubbleVfx : Control
+    {
+        public string Text;
+        public Creature Speaker;
+        public static NThoughtBubbleVfx Create(string text, Creature speaker, double? secondsToDisplay) => new() { Text = text, Speaker = speaker };
+    }
+    public class CombatVfxContainer : Node
+    {
+        public NThoughtBubbleVfx LastBubble => GetChildren().OfType<NThoughtBubbleVfx>().LastOrDefault();
+    }
+}
+namespace MegaCrit.Sts2.Core.Helpers
+{
+    public static class GodotTreeExtensions
+    {
+        public static void AddChildSafely(this Node parent, Node child) { if (child != null) parent.AddChild(child); }
     }
 }
 namespace MegaCrit.Sts2.Core.Nodes.GodotExtensions
@@ -158,7 +217,11 @@ namespace MegaCrit.Sts2.Core.Nodes.Combat
 }
 namespace MegaCrit.Sts2.Core.Nodes.Rooms
 {
-    public class NCombatRoom : Node { public static readonly NCombatRoom Instance = new(); }
+    public class NCombatRoom : Node
+    {
+        public static readonly NCombatRoom Instance = new();
+        public readonly MegaCrit.Sts2.Core.Nodes.Vfx.CombatVfxContainer CombatVfxContainer = new();
+    }
 }
 namespace MegaCrit.Sts2.Core.Nodes.Screens.Overlays
 {

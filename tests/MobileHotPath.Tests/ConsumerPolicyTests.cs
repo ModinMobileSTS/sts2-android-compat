@@ -25,6 +25,8 @@ internal static class ConsumerPolicyTests
         SetTouchControls(true);
         ConfirmationOnExistingScreens();
         PreviewPointerOwnershipAndReset();
+        RejectedPreviewPlayZoneTap();
+        RejectedPreviewRetap();
         RewardConfirmationAndReset();
         MerchantConfirmationAndReset();
         MerchantProductPurchases();
@@ -168,6 +170,65 @@ internal static class ConsumerPolicyTests
         Require(!MobileTapPreviewPatches.IsPinned(holder) && holder.IsHovered && holder.IsFocused,
             "preview setting hot-disable clears pin and restores ordinary hover");
         AndroidSettingsBridge.TouchPreviewEnabled = true;
+    }
+
+    private static void RejectedPreviewPlayZoneTap()
+    {
+        var hand = NewHand(out var holder);
+        var card = holder.CardModel;
+        card.EnergyCost = 1;
+        card.Energy = 0;
+        card.TargetType = MegaCrit.Sts2.Core.Entities.Cards.TargetType.Self;
+        hand.OnHolderPressed(holder);
+        var tap = new InputEventScreenTouch { Pressed = true, Position = new Vector2(300, 100) };
+        NGame.Instance._Input(tap);
+        Require(card.ManualPlays == 0 && card.Energy == 0 && !hand.InCardPlay,
+            "an unaffordable skill never spends energy or enters card play");
+        Require(MobileTapPreviewPatches.GetPinnedHolder(hand) == null && hand.FocusedHolder == null && !holder.IsFocused,
+            "an unaffordable skill returns to the hand instead of remaining lifted");
+        var bubble = MegaCrit.Sts2.Core.Nodes.Rooms.NCombatRoom.Instance.CombatVfxContainer.LastBubble;
+        Require(bubble?.Text == "NOT_ENOUGH_ENERGY" && ReferenceEquals(bubble.Speaker, card.Owner.Creature),
+            "a rejected skill shows the same resource failure dialogue over its owner as dragging");
+        holder.SetMouseHovered(true);
+        hand.OnHolderFocused(holder);
+        NGame.Instance._Input(new InputEventScreenTouch { Pressed = false, Position = tap.Position });
+        NGame.Instance._Input(new InputEventScreenDrag { Position = new Vector2(0, -80) });
+        NGame.Instance._Input(tap);
+        Require(!holder.IsFocused && hand.FocusedHolder == null && MobileTapPreviewPatches.GetPinnedHolder(hand) == null
+            && card.ManualPlayAttempts == 1 && hand.CardPlays == 0,
+            "hover, release, stale drag and another screen tap cannot relift or retry a rejected card");
+        card.Energy = 1;
+        hand.OnHolderPressed(holder);
+        NGame.Instance._Input(tap);
+        Require(card.ManualPlays == 1 && card.Energy == 0 && MobileTapPreviewPatches.GetPinnedHolder(hand) == null,
+            "explicitly selecting the card again after gaining energy permits one normal play");
+    }
+
+    private static void RejectedPreviewRetap()
+    {
+        AndroidSettingsBridge.RetapAction = "play";
+        try
+        {
+            var hand = NewHand(out var holder);
+            var card = holder.CardModel;
+            card.Energy = 2;
+            card.Unplayable = true;
+            hand.OnHolderPressed(holder);
+            hand.OnHolderPressed(holder);
+            var bubble = MegaCrit.Sts2.Core.Nodes.Rooms.NCombatRoom.Instance.CombatVfxContainer.LastBubble;
+            Require(card.ManualPlays == 0 && card.Energy == 2 && bubble?.Text == "UNPLAYABLE",
+                "retap-to-play also reports non-resource play restrictions without spending energy");
+            Require(!MobileTapPreviewPatches.IsPinned(holder) && !holder.IsFocused && hand.FocusedHolder == null,
+                "a rejected retap drops the card regardless of the configured retap action");
+            holder.SetMouseHovered(true);
+            hand.OnHolderFocused(holder);
+            Require(!holder.IsFocused && hand.FocusedHolder == null,
+                "the failed retap cannot reacquire hover focus under the same finger");
+        }
+        finally
+        {
+            AndroidSettingsBridge.RetapAction = "put_down";
+        }
     }
 
     private static void RewardConfirmationAndReset()

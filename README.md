@@ -145,6 +145,10 @@ Current implementation (`STS2AndroidPortCompat`):
   for releases outside the play zone / untargeted releases.
 - `MobileTapPreviewPatches` adds a first-pass tap-to-lift card preview flow using
   companion `touch_lift_preview` / `touch_lift_retap_action` settings.
+  Rejected untargeted play-zone taps and play-configured retaps reuse the payload's
+  localized failure dialogue and thought bubble, then lower the card instead of
+  re-pinning it. Residual hover is suppressed until exit; an explicit new selection
+  can play normally once resources are sufficient. Regression: `tests/MobileHotPath.Tests`.
 - `MobileReactionButtonPatches` injects the Android reaction-wheel button while
   reusing the payload's reaction synchronizer. Android detection accepts either
   the mobile feature tag or the Android OS name, and networking lifecycle hooks

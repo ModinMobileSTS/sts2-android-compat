@@ -274,10 +274,12 @@ export STS2_ORIGINAL_V1100_REFERENCE_DIR=/path/to/original-v0.110.1/bin/Debug
 export STS2_ORIGINAL_V1110_REFERENCE_DIR=/path/to/original-v0.111.0/bin/Debug
 ./tools/build-compat-matrix.sh --target v0.111.0
 
-# Current v0.113.0 public-beta mode/UI target; preserve its original atlas-aware blur.
-export STS2_ORIGINAL_V1130_REFERENCE_DIR=/path/to/original-v0.113.0/data_sts2_windows_x86_64
+# Shared v0.113.x public-beta target; retain the V1130 name and use the latest v0.113.1 gate.
+export STS2_ORIGINAL_V1130_REFERENCE_DIR=/path/to/original-v0.113.1/data_sts2_windows_x86_64
 ./tools/build-compat-matrix.sh --target v0.113.0
 ```
+
+The stable `v0.113.0` target id displays as `STS2 v0.113.x` and supports both v0.113.0 and v0.113.1 by version and exact DLL SHA. v0.113.1 changes gameplay, saves and tooltip APIs, but retains the contracts used by this variant and the same scene/material/shader entries. Shared Android compatibility does not imply ordinary MOD API equivalence or cross-version LAN support.
 
 `tools/build-compat-pack.sh` is the legacy schema-1 path; use it only when also providing a matching `COMPAT_MANIFEST`.
 

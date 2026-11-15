@@ -2,22 +2,27 @@
   "schema": 1,
   "target_id": "v0.113.0",
   "status": "active",
-  "display_name": "STS2 v0.113.0",
+  "display_name": "STS2 v0.113.x",
   "versions": [
-    "v0.113.0"
+    "v0.113.0",
+    "v0.113.1"
   ],
   "reference_flavor": "original-v0.113.0",
   "channel": "beta",
-  "source": "original_pc_reference_v0.113.0",
+  "source": "original_pc_reference_v0.113.1",
   "steam_branch": "public-beta",
-  "sts2_dll_sha256": "a6cc282c52b96ad2e01d5692b1144b33aa8e3ba4e969582f648ecb13b2f751d7",
+  "sts2_dll_sha256": [
+    "a6cc282c52b96ad2e01d5692b1144b33aa8e3ba4e969582f648ecb13b2f751d7",
+    "62ecbe91093e1fa862de4329aac865209dcb297804caf0f0520d92d8c0b4a9c3"
+  ],
   "compile_constants": [
     "STS2_TARGET_1130"
   ],
   "notes": [
-    "Independent flattened target for the v0.113.0 public-beta managed API, new game modes and UI contracts; do not merge into the v0.111.0 variant.",
+    "Shared flattened target for v0.113.0 and v0.113.1 public-beta; retain the stable target_id, ReferenceFlavor and STS2_TARGET_1130 constant for existing profiles and tooling. This API line remains independent of v0.111.0.",
     "LAN joining uses the payload-owned NJoinFriendScreen.JoinGameAsync lifecycle; host services retain PeerVersionInfo.LocalDefault() and the original HandshakeManager, MessageTypes and NetMessageBus.",
     "LAN hosting preserves the separate isCustom flag and routes Standard, Daily, Blitz and Dread through their original lobby screens; loaded custom runs use IsCustomGame.",
-    "Merchant confirmation and extended treasure-room layouts resolve the v0.113 purchase and holder shapes while retaining legacy target behavior."
+    "Merchant confirmation and extended treasure-room layouts resolve the v0.113 purchase and holder shapes while retaining legacy target behavior.",
+    "v0.113.1 changes gameplay, saves and tooltip alignment APIs, but retains the contracts used by this compat variant and all scene/material/shader entries; this is not a guarantee of ordinary MOD or cross-version LAN compatibility."
   ]
 }

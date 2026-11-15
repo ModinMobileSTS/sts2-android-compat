@@ -405,6 +405,18 @@ public static class ShaderCompatibilityPatches
             RepairKnownCachedMaterials(node.GetChild(i));
     }
 
+    // Off-tree extraction and live-tree replicas use the same audited resolver.
+    // Never replace a source node's/shared material just to warm its shader.
+    internal static Material ResolveWarmupMaterial(Material material)
+    {
+        if (!IsEnabled() || material is not ShaderMaterial shaderMaterial)
+            return material;
+        EnsureOverlayPackLoadedForDiagnostics();
+        return TryResolveReplacement(shaderMaterial.Shader, shaderMaterial.ResourcePath, out var path)
+            && TryCreateReplacement(shaderMaterial, path, out var replacement)
+            ? replacement : material;
+    }
+
     private static void TryReplaceMaterial(CanvasItem canvasItem)
     {
         if (canvasItem.Material is not ShaderMaterial shaderMaterial)

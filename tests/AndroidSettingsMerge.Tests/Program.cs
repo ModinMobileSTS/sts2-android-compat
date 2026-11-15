@@ -16,7 +16,9 @@ internal static class Program
         {
             AndroidSettingsBridge.SettingsPath = Path.Combine(directory, "settings.save");
             File.WriteAllText(AndroidSettingsBridge.SettingsPath,
-                "{\"volume_master\":0.75,\"android_compat_pack_enabled\":false,\"android_builtin_full_keyboard\":false,\"android_floating_keyboard_enabled\":true}");
+                "{\"volume_master\":0.75,\"android_compat_pack_enabled\":false,\"android_builtin_full_keyboard\":false,\"android_floating_keyboard_enabled\":true,"
+                + "\"preload_enabled\":false,\"preload_render_warmup_enabled\":true,\"preload_runtime_enabled\":false,"
+                + "\"preload_vfx_tree_warmup_enabled\":false,\"preload_combat_animation_warmup_mode\":\"safe\"}");
             string beforeSave = File.ReadAllText(AndroidSettingsBridge.SettingsPath);
 
             // A typed game settings save discards fields it does not own.
@@ -31,6 +33,13 @@ internal static class Program
             if (saved["android_floating_keyboard_enabled"]?.GetValue<bool>() != true
                 || saved["android_builtin_full_keyboard"]?.GetValue<bool>() != false)
                 throw new InvalidOperationException("Saving in-game settings lost independent floating/full keyboard preferences.");
+            if (saved["preload_render_warmup_enabled"]?.GetValue<bool>() != true)
+                throw new InvalidOperationException("Saving in-game settings lost the launcher's enabled render-replica warmup choice.");
+            if (saved["preload_enabled"]?.GetValue<bool>() != false
+                || saved["preload_runtime_enabled"]?.GetValue<bool>() != false
+                || saved["preload_vfx_tree_warmup_enabled"]?.GetValue<bool>() != false
+                || saved["preload_combat_animation_warmup_mode"]?.GetValue<string>() != "safe")
+                throw new InvalidOperationException("Saving render-replica warmup preferences changed independent master, runtime, or legacy warmup choices.");
             if (saved["volume_master"]?.GetValue<double>() != 0.25)
                 throw new InvalidOperationException("Merging Android preferences rolled back the game's new volume setting.");
             Console.WriteLine("PASS settings serialization round-trip: " + saved.ToJsonString());

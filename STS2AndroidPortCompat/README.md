@@ -211,6 +211,26 @@ semantics, scope, settings and protection rules are unchanged. A single load may
 still block the frame. There is no shared background-request gate for startup;
 the runtime asynchronous resource queues and shader-node optimization remain.
 
+`preload_render_warmup_enabled` is an independent experimental path, off by
+default and gated only by the preload master switch. `RenderReplicaWarmup`
+extracts plain native draw nodes from off-tree VFX scenes and the live combat,
+submitting at most eight replicas per visible frame batch behind an opaque
+overlay. The original nodes never enter a tree or run Ready/Process/animation
+callbacks; off-tree instantiation may still execute constructors. Live animation,
+particles, transforms, visibility, materials and ownership remain untouched.
+Material/sampler inheritance stops at Godot canvas boundaries, and the special
+GPU particle setter that normalizes a default 3D process material is isolated.
+Supported cases include particle process/draw, rects, sprites, mesh/multimesh,
+lines, polygons, canvas groups, representative blend variants and a stock canvas
+light. Geometry is reduced; skeletons and runtime-generated geometry are skipped
+with diagnostics. Render-resource pins survive warmup-node destruction for the
+process lifetime; temporary source trees, particle buffers and overlay nodes do
+not. Reported submission/post-draw counts are not GPU-completion, compilation or
+disk-cache proof. This path does not play gameplay factories, instantiate all
+models, warm audio/JIT, sample all Spine clips or cover every shader variant.
+Older warmups and their defaults remain independent and can be switched off
+manually when testing this path alone.
+
 Shader compatibility uses enabled-only `SceneTree.NodeAdded` notifications and
 one coalesced idle pass after parent/child Ready callbacks, instead of recursive
 AddChild hooks. Disabling removes the subscription and pending references;
@@ -245,15 +265,19 @@ inherited, and avoids equal-value setters/auto-size adjustments. Scaling and
 restoration use original base sizes without compounding on reentry; locale font
 fallback remains unchanged.
 
-`tests/FramePreparation.Tests` runs the production shader, queue, effect-pool and
-font-scaling code with the official Godot 4.5.1 .NET engine and packaged Harmony.
-Synthetic fixtures cover runtime resource failures, stale playback, bounded
-retention, cancellation, material isolation and font restoration. The removed
-startup background loader no longer has single-request/retrieval tests.
-Build with `HarmonyReferenceDir`, then
-launch Godot with `--headless --path tests/FramePreparation.Tests`; on Linux set
-`DOTNET_ROOT` to the .NET SDK root and `LD_PRELOAD=libgcc_s.so.1` for MonoMod's
-native unwinder. The malformed-resource error is expected before the final PASS.
+`tests/FramePreparation.Tests` runs the production shader, render-replica, queue,
+effect-pool and font-scaling code with Godot 4.5.1 .NET and packaged Harmony.
+Synthetic fixtures cover real draw pixels for independent shaders, off-tree
+callback isolation, inherited material/sampler boundaries, shared process-material
+isolation, bounded batches, cancellation and retained resources, plus runtime
+resource failures, stale playback, effect retention and font restoration.
+Build with `HarmonyReferenceDir`, then launch Godot with
+`--path tests/FramePreparation.Tests --rendering-method gl_compatibility --rendering-driver opengl3_es --audio-driver Dummy`.
+Do not use `--headless`: replica checks require a real renderer. On Linux without
+a display, use `LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a`; set `DOTNET_ROOT` to the SDK
+root and `LD_PRELOAD=libgcc_s.so.1` for MonoMod's native unwinder. The malformed
+resource error is expected before the final PASS. Desktop rendering is not an
+Android cold-cache performance certification.
 Optionally set `STS2_FRAME_REFERENCE_DLLS` to semicolon-separated local original
 DLL paths for read-only Cecil checks of queue IL and VFX factory/playback shapes;
 the harness never executes those game assemblies or includes commercial data.

@@ -41,7 +41,7 @@ public static class CombatAnimationWarmupPatches
                 return;
             string mode = GetWarmupMode();
             bool hitEffectWarmup = IsCombatHitEffectWarmupEnabled();
-            if (mode == ModeOff && !hitEffectWarmup)
+            if (mode == ModeOff && !hitEffectWarmup && !RenderWarmupPatches.IsEnabled)
                 return;
             if (__instance.Mode != CombatRoomMode.ActiveCombat)
                 return;
@@ -75,6 +75,11 @@ public static class CombatAnimationWarmupPatches
         {
             await WaitForFramesAsync(2);
             if (!IsActiveRoom(room))
+                return;
+
+            if (RenderWarmupPatches.IsEnabled)
+                await RenderWarmupPatches.RunCombatAsync(room, () => IsActiveRoom(room));
+            if (!IsActiveRoom(room) || (mode == ModeOff && !hitEffectWarmup))
                 return;
 
             var creatures = room.CreatureNodes

@@ -26,6 +26,7 @@ public partial class Main : Node
             await Frame();
             await CheckShaderLifecycle(game);
             await CheckEnergyParticles(harmony, game);
+            await CheckRenderWarmup();
             await CheckVfxReuse();
             await CheckExpandedVfxReuse();
             await CheckRuntimeBudgets();
@@ -33,7 +34,7 @@ public partial class Main : Node
             await CheckFontScaling();
             ExtendedMultiplayerRoomPatches.Apply(harmony);
             Program.RunTreasureScenarios();
-            GD.Print("PASS: native Godot shader lifecycle/isolation, VFX reuse, runtime resource budgets/failure recovery and font restoration.");
+            GD.Print("PASS: native Godot shader lifecycle/isolation, render replicas, VFX reuse, runtime resource budgets/failure recovery and font restoration.");
             GetTree().Quit();
         }
         catch (Exception exception)

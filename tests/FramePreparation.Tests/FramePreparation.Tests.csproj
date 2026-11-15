@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../STS2AndroidPortCompat/Patches/ShaderCompatibilityPatches.cs" Link="ShaderCompatibilityPatches.cs" />
+    <Compile Include="../../STS2AndroidPortCompat/Patches/RenderReplicaWarmup.cs" Link="RenderReplicaWarmup.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/CombatVfxPoolPatches.cs" Link="CombatVfxPoolPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/RuntimeAssetLoadingPatches.cs" Link="RuntimeAssetLoadingPatches.cs" />
     <Compile Include="../../STS2AndroidPortCompat/Patches/AndroidFontSizeScaler.cs" Link="AndroidFontSizeScaler.cs" />

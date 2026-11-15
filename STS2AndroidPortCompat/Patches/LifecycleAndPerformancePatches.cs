@@ -165,6 +165,8 @@ public static class LifecycleAndPerformancePatches
             var vfxMode = GetVfxWarmupMode();
             if (!string.Equals(vfxMode, "off", StringComparison.OrdinalIgnoreCase))
                 await AndroidStartupLoadingScreen.WarmupCriticalScenesAsync(loadingScreen, vfxMode, IsVfxTreeWarmupEnabled(), GetVfxTreeWarmupFrames(), IsVfxWarmupRetainCacheEnabled(), GetVfxTreeWarmupScope());
+            if (RenderWarmupPatches.IsEnabled)
+                await RenderWarmupPatches.RunStartupAsync(owner ?? loadingScreen);
             if (IsGameplayAssetPreloadEnabled() || IsLearnedWarmListEnabled())
                 await RunGameplayWarmCachePreloadAsync(loadingScreen);
             if (IsMenuHotspotPreloadEnabled())
@@ -1301,6 +1303,7 @@ public static class LifecycleAndPerformancePatches
         || ShouldRunStartupWarmupScreen()
         || IsGameplayAssetPreloadEnabled()
         || IsLearnedWarmListEnabled()
+        || RenderWarmupPatches.IsEnabled
         || IsMenuHotspotPreloadEnabled();
 
     private static bool ShouldAllowAssetSetPreload(string name)

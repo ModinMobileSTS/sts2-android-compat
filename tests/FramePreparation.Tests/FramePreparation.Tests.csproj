@@ -19,6 +19,7 @@
     <Compile Include="../../STS2AndroidPortCompat/Patches/ExtendedMultiplayerRoomPatches.cs" Link="ExtendedMultiplayerRoomPatches.cs" />
     <Compile Include="../ExtendedMultiplayerRoom.Tests/Runner/Stubs.cs" Link="TreasureRoomFixtures.cs" />
     <Compile Include="../ExtendedMultiplayerRoom.Tests/Runner/Program.cs" Link="TreasureRoomScenarios.cs" />
+    <EmbeddedResource Include="../../overlay/shaders/mobile_compat/scry_reveal_compat.gdshader" LogicalName="CrystalSphereRevealShader" />
     <Reference Include="0Harmony"><HintPath>$(HarmonyReferenceDir)/0Harmony.dll</HintPath></Reference>
     <Reference Include="MonoMod.Core"><HintPath>$(HarmonyReferenceDir)/MonoMod.Core.dll</HintPath></Reference>
     <Reference Include="MonoMod.Utils"><HintPath>$(HarmonyReferenceDir)/MonoMod.Utils.dll</HintPath></Reference>

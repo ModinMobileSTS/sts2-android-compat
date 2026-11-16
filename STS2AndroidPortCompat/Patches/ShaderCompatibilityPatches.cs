@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Combat;
+using MegaCrit.Sts2.Core.Nodes.Events.Custom.CrystalSphere;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using MegaCrit.Sts2.Core.Nodes.Screens.Timeline;
 using MegaCrit.Sts2.Core.Nodes.Vfx;
@@ -419,6 +420,12 @@ public static class ShaderCompatibilityPatches
 
     private static void TryReplaceMaterial(CanvasItem canvasItem)
     {
+        if (canvasItem is NCrystalSphereMask)
+        {
+            // Cell fades and time are written through the mask's _Ready cache.
+            ReplaceCachedField(canvasItem, "_material", ".");
+            return;
+        }
         if (canvasItem.Material is not ShaderMaterial shaderMaterial)
             return;
         if (!TryResolveReplacement(shaderMaterial.Shader, shaderMaterial.ResourcePath, out var replacementPath))

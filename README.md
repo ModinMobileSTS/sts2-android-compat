@@ -117,6 +117,11 @@ Current implementation (`STS2AndroidPortCompat`):
   Known `AssetCache.GetMaterial()` and `NCard.Reload()` repair paths explicitly
   bind replacement material copies; the current integration exposes no generic
   late-material helper, so callers must not assume arbitrary dynamic assignments
+- Crystal Sphere keeps the compatibility shader enabled while rebinding both
+  `NCrystalSphereMask`'s cached material and its displayed material during the
+  deferred replacement. Cell-fade parameters and time continue to reach the same
+  copy, including when compatibility is enabled after cells were already revealed.
+  Native pixel regression coverage is in `tests/FramePreparation.Tests`.
 - The same shader-compatibility switch enables a narrow Android/Maleoon workaround
   only with the actual `gl_compatibility` renderer. At `NEnergyCounter.Create()`
   return, before tree entry, the known built-in Ironclad front energy-ember emitter

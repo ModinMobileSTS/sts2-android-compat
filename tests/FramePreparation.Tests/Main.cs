@@ -25,6 +25,7 @@ public partial class Main : Node
             AddChild(game);
             await Frame();
             await CheckShaderLifecycle(game);
+            await CheckCrystalSphereReveal(game);
             await CheckEnergyParticles(harmony, game);
             await CheckRenderWarmup();
             await CheckVfxReuse();

@@ -9,6 +9,9 @@ namespace STS2Mobile;
 public static class HarmonyMethodReferenceImporterShim
 {
     private const string HarmonyId = "com.sts2mobile.monomod.importer";
+    private const string JsonAssemblyName = "System.Text.Json";
+    private const string DamageProbeName = "DamageResult.set_UnblockedDamage";
+    private const string JsonProbeName = "JsonPropertyInfoValues<T>.set_IsProperty";
     private const int RepairLogLimit = 32;
     private static bool _initialized;
     private static bool _importerInstalled;
@@ -23,19 +26,19 @@ public static class HarmonyMethodReferenceImporterShim
 
         try
         {
-            var diagnostic = DiagnoseDamageResultSetterImport();
-            PatchHelper.Log($"[HarmonyImporterShim] DamageResult.set_UnblockedDamage import diagnostic: {diagnostic}");
+            var damageNeedsShim = DiagnoseSetterImport(DamageProbeName, ResolveDamageResultSetter);
+            var jsonNeedsShim = DiagnoseSetterImport(JsonProbeName, ResolveJsonIsPropertySetter);
 
-            if (!diagnostic.NeedsShim)
+            if (!damageNeedsShim && !jsonNeedsShim)
             {
-                PatchHelper.Log("[HarmonyImporterShim] method modifier repair not required.");
+                PatchHelper.Log("[HarmonyImporterShim] No method modifier loss detected; repair not installed.");
                 return;
             }
 
             Install();
-            var after = DiagnoseDamageResultSetterImport();
-            PatchHelper.Log($"[HarmonyImporterShim] DamageResult.set_UnblockedDamage direct import after repair: {after}; importer={_importerInstalled}; emitter={_emitterInstalled}");
-            if (after.NeedsShim && !_emitterInstalled)
+            var damageStillNeedsShim = damageNeedsShim && DiagnoseSetterImport(DamageProbeName, ResolveDamageResultSetter, afterRepair: true);
+            var jsonStillNeedsShim = jsonNeedsShim && DiagnoseSetterImport(JsonProbeName, ResolveJsonIsPropertySetter, afterRepair: true);
+            if ((damageStillNeedsShim || jsonStillNeedsShim) && !_emitterInstalled)
                 PatchHelper.Log("[HarmonyImporterShim] ERROR custom modifier repair is not active on either import path; Harmony wrappers may fail on Android/Mono.");
         }
         catch (Exception exception)
@@ -128,7 +131,7 @@ public static class HarmonyMethodReferenceImporterShim
             var repairNumber = Interlocked.Increment(ref _repairLogCount);
             if (repairNumber <= RepairLogLimit)
             {
-                PatchHelper.Log($"[HarmonyImporterShim] Repaired STS2 method reference custom modifiers: {DescribeMethod(method)} -> {GetProperty(methodReference, "FullName")}");
+                PatchHelper.Log($"[HarmonyImporterShim] Repaired method reference custom modifiers: {DescribeMethod(method)} -> {GetProperty(methodReference, "FullName")}");
             }
             else if (repairNumber == RepairLogLimit + 1)
             {
@@ -137,13 +140,13 @@ public static class HarmonyMethodReferenceImporterShim
         }
         catch (Exception exception)
         {
-            PatchHelper.Log($"[HarmonyImporterShim] Failed to repair imported STS2 method reference for {DescribeMethod(method)}: {exception.GetType().Name}: {exception.Message}");
+            PatchHelper.Log($"[HarmonyImporterShim] Failed to repair imported method reference for {DescribeMethod(method)}: {exception.GetType().Name}: {exception.Message}");
         }
     }
 
     private static bool ShouldImportWithModifiers(MethodBase method)
     {
-        if (method == null || !IsSts2Method(method))
+        if (method == null || !IsSupportedMethod(method))
             return false;
 
         if (method is MethodInfo methodInfo && HasCustomModifiers(methodInfo.ReturnParameter))
@@ -302,8 +305,45 @@ public static class HarmonyMethodReferenceImporterShim
         return method.Invoke(module, new[] { (object)type, methodReference });
     }
 
-    private static ImportDiagnostic DiagnoseDamageResultSetterImport()
+    private static MethodInfo ResolveDamageResultSetter()
     {
+        return ResolveSts2Type("MegaCrit.Sts2.Core.Entities.Creatures.DamageResult")
+            ?.GetProperty("UnblockedDamage", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+            ?.GetSetMethod(true);
+    }
+
+    private static MethodInfo ResolveJsonIsPropertySetter()
+    {
+        return ResolveType(JsonAssemblyName, "System.Text.Json.Serialization.Metadata.JsonPropertyInfoValues`1")
+            ?.MakeGenericType(typeof(object))
+            .GetProperty("IsProperty", BindingFlags.Public | BindingFlags.Instance)
+            ?.SetMethod;
+    }
+
+    private static bool DiagnoseSetterImport(string probeName, Func<MethodInfo> resolveSetter, bool afterRepair = false)
+    {
+        ImportDiagnostic diagnostic;
+        try
+        {
+            diagnostic = ProbeSetterImport(resolveSetter());
+        }
+        catch (Exception exception)
+        {
+            diagnostic = ImportDiagnostic.Skipped(exception.GetBaseException().ToString());
+        }
+
+        if (afterRepair)
+            PatchHelper.Log($"[HarmonyImporterShim] {probeName} direct import after repair: {diagnostic}; importer={_importerInstalled}; emitter={_emitterInstalled}");
+        else
+            PatchHelper.Log($"[HarmonyImporterShim] {probeName} import diagnostic: {diagnostic}");
+        return diagnostic.NeedsShim;
+    }
+
+    private static ImportDiagnostic ProbeSetterImport(MethodInfo setter)
+    {
+        if (setter == null)
+            return ImportDiagnostic.Skipped("probe setter not found");
+
         var importerType = ResolveType("MonoMod.Utils", "MonoMod.Utils.MMReflectionImporter");
         var providerType = ResolveType("Mono.Cecil", "Mono.Cecil.IReflectionImporterProvider");
         var moduleDefinitionType = ResolveType("Mono.Cecil", "Mono.Cecil.ModuleDefinition");
@@ -311,15 +351,6 @@ public static class HarmonyMethodReferenceImporterShim
         var moduleKindType = ResolveType("Mono.Cecil", "Mono.Cecil.ModuleKind");
         if (importerType == null || providerType == null || moduleDefinitionType == null || moduleParametersType == null || moduleKindType == null)
             return ImportDiagnostic.Skipped($"required types missing importer={importerType != null} provider={providerType != null} module={moduleDefinitionType != null}");
-
-        var damageResult = ResolveSts2Type("MegaCrit.Sts2.Core.Entities.Creatures.DamageResult");
-        if (damageResult == null)
-            return ImportDiagnostic.Skipped("DamageResult type not loaded");
-
-        var setter = damageResult.GetProperty("UnblockedDamage", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
-            ?.GetSetMethod(true);
-        if (setter == null)
-            return ImportDiagnostic.Skipped("UnblockedDamage setter not found");
 
         var parameters = Activator.CreateInstance(moduleParametersType);
         SetProperty(parameters, "Kind", Enum.Parse(moduleKindType, "Dll"));
@@ -460,11 +491,13 @@ public static class HarmonyMethodReferenceImporterShim
         }
     }
 
-    private static bool IsSts2Method(MethodBase method)
+    private static bool IsSupportedMethod(MethodBase method)
     {
         try
         {
-            return string.Equals(method.Module.Assembly.GetName().Name, "sts2", StringComparison.OrdinalIgnoreCase);
+            var assemblyName = method.Module.Assembly.GetName().Name;
+            return string.Equals(assemblyName, "sts2", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(assemblyName, JsonAssemblyName, StringComparison.OrdinalIgnoreCase);
         }
         catch
         {

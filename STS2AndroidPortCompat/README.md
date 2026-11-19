@@ -12,11 +12,31 @@ Build and stage into the Android shell:
 tools/android/build-port-mod.sh
 ```
 
-Compile the current v0.111.0 target against its original PC references:
+Compile the shared implementation for v0.111.1 stable/public and the retained
+v0.111.0 beta/public-beta target using the existing v0.111.0 original references:
 
 ```bash
 REFERENCE_FLAVOR=original-v0.111.0 tools/android/build-port-mod.sh
 ```
+
+Both metadata targets use `original-v0.111.0`, `STS2_ORIGINAL_V1110_*` and
+`STS2_TARGET_1110`; do not introduce an `original-v0.111.1` flavor or V1111
+environment variable. To build the installable v0.111.1 variant from the parent
+repository root, use:
+
+```bash
+(cd port-mod && ./tools/build-compat-matrix.sh --target v0.111.1)
+```
+
+The full family is `0.7.2-dev`. Its separate `v0.111.1` stable/`public` record
+matches original DLL SHA-256
+`3fb1fa1bf0249087b706a5d0f062a60579e2f5b08df4ee477ddd6f2607f654d5`;
+the existing `v0.111.0` beta/`public-beta` record remains unchanged. Their managed
+API, runtime IL and dependencies are equivalent, but archive imports without a
+recorded Steam branch need distinct target metadata so Workshop `auto` falls
+back to `public` for .1 and `public-beta` for .0. A recorded Steam payload branch
+still takes precedence. Desktop audit or native/headless ModelDb initialization
+does not certify Android UI/gameplay, ordinary MODs or LAN.
 
 Compile against another configured reference set, for example the legacy v0.106.1 target:
 
@@ -126,11 +146,13 @@ The LAN patch deliberately does not patch `MessageTypes.ToId`,
 `MessageTypes.TryGetMessageType`, or `NetMessageBus.TryDeserializeMessage`.
 The matching original game assembly remains the sole wire-protocol
 implementation, including its per-version and MOD-aware message ordering, so an
-Android peer uses the same codec as an unmodified PC peer. For v0.111.0 the
+Android peer uses the same codec as an unmodified PC peer. For v0.111.0 and v0.111.1 the
 compat layer supplies `PeerVersionInfo.LocalDefault()` when constructing the
 original host/client services, then leaves the original `HandshakeManager` in
 control of version, ModelDb hash, and MOD validation. Protocol-affecting MODs
 must still match on both peers.
+Sharing the implementation does not establish v0.111.0/v0.111.1 cross-version
+LAN support; the actual payload retains its own version and handshake checks.
 
 Player capacities above four remain experimental, but
 `Patches/ExtendedMultiplayerRoomPatches.cs` removes two deterministic vanilla

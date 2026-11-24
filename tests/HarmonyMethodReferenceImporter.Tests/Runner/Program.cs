@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json.Serialization.Metadata;
 using HarmonyLib;
 using Mono.Cecil;
 using MonoMod.Utils;
 using MonoMod.Utils.Cil;
 using SyntheticGame;
+using CecilOpCodes = Mono.Cecil.Cil.OpCodes;
 using SreOpCodes = System.Reflection.Emit.OpCodes;
 
 internal static class Program
@@ -18,21 +20,23 @@ internal static class Program
 
     private static void Main()
     {
-        var damageSetter = typeof(MegaCrit.Sts2.Core.Entities.Creatures.DamageResult)
-            .GetProperty(nameof(MegaCrit.Sts2.Core.Entities.Creatures.DamageResult.UnblockedDamage))
-            ?.SetMethod ?? throw new InvalidOperationException("DamageResult setter missing");
+        var classSetter = typeof(ClassCarrier).GetProperty(nameof(ClassCarrier.Value))?.SetMethod
+            ?? throw new InvalidOperationException("ClassCarrier setter missing");
+        var jsonType = typeof(JsonPropertyInfoValues<object>);
+        const string jsonProperty = nameof(JsonPropertyInfoValues<object>.IsProperty);
+        var jsonSetter = jsonType.GetProperty(jsonProperty)?.SetMethod
+            ?? throw new InvalidOperationException("JsonPropertyInfoValues<T>.IsProperty setter missing");
 
-        Assert(!DirectImportHasInitModifier(damageSetter), "fixture must reproduce the packaged importer's missing modreq before repair");
+        Assert(!DirectImportHasInitModifier(classSetter), "fixture must reproduce the packaged importer's missing modreq before repair");
 
         STS2Mobile.HarmonyMethodReferenceImporterShim.Initialize();
         AssertParameterModifierRepair();
-        Assert(DirectImportHasInitModifier(damageSetter), "direct MMReflectionImporter path was not repaired");
+        Assert(DirectImportHasInitModifier(classSetter), "direct MMReflectionImporter path was not repaired");
+        AssertExecutableSetter(jsonType, jsonSetter, jsonProperty, true, useDirectImport: true);
 
         UnpatchDirectImporter();
-        Assert(!DirectImportHasInitModifier(damageSetter), "direct importer postfix was not isolated for emitter fallback test");
+        Assert(!DirectImportHasInitModifier(classSetter), "direct importer postfix was not isolated for emitter fallback test");
 
-        var classSetter = typeof(ClassCarrier).GetProperty(nameof(ClassCarrier.Value))?.SetMethod
-            ?? throw new InvalidOperationException("ClassCarrier setter missing");
         var classReference = EmitSetterReference(typeof(ClassCarrier), classSetter, SreOpCodes.Callvirt, useEmitCall: false, receiverByReference: false);
         AssertInitModifier(classReference, "CecilILGenerator.Emit class callvirt");
         Assert(classReference.HasThis, "class setter lost instance calling convention");
@@ -52,6 +56,7 @@ internal static class Program
 
         AssertExecutableSetter(typeof(ClassCarrier), classSetter, "Value", 17);
         AssertExecutableSetter(typeof(GenericCarrier<int>), genericSetter, "Value", 29);
+        AssertExecutableSetter(jsonType, jsonSetter, jsonProperty, true);
 
         Console.WriteLine("Harmony method-reference modifier regression passed.");
     }
@@ -154,7 +159,7 @@ internal static class Program
             .Single();
     }
 
-    private static void AssertExecutableSetter(Type receiverType, MethodInfo setter, string propertyName, int expected)
+    private static void AssertExecutableSetter(Type receiverType, MethodInfo setter, string propertyName, object expected, bool useDirectImport = false)
     {
         using var module = CreateModule("execute");
         var owner = AddOwner(module);
@@ -164,13 +169,22 @@ internal static class Program
             module.TypeSystem.Void);
         owner.Methods.Add(method);
         method.Parameters.Add(new ParameterDefinition(module.ImportReference(receiverType)));
-        method.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
+        method.Parameters.Add(new ParameterDefinition(module.ImportReference(setter.GetParameters()[0].ParameterType)));
 
-        var generator = new CecilILGenerator(method.Body.GetILProcessor());
-        generator.Emit(SreOpCodes.Ldarg_0);
-        generator.Emit(SreOpCodes.Ldarg_1);
-        generator.EmitCall(SreOpCodes.Callvirt, setter, null);
-        generator.Emit(SreOpCodes.Ret);
+        var il = method.Body.GetILProcessor();
+        il.Emit(CecilOpCodes.Ldarg_0);
+        il.Emit(CecilOpCodes.Ldarg_1);
+        if (useDirectImport)
+        {
+            var reference = module.ImportReference(setter);
+            AssertInitModifier(reference, "MMReflectionImporter executable setter");
+            il.Emit(CecilOpCodes.Callvirt, reference);
+        }
+        else
+        {
+            new CecilILGenerator(il).EmitCall(SreOpCodes.Callvirt, setter, null);
+        }
+        il.Emit(CecilOpCodes.Ret);
 
         using var stream = new MemoryStream();
         module.Write(stream);

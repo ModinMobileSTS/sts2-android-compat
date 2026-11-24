@@ -2,7 +2,8 @@ namespace MegaCrit.Sts2.Core.Entities.Creatures
 {
     public sealed class DamageResult
     {
-        public int UnblockedDamage { get; init; }
+        // JSON must trigger installation even when the game probe has no modreq.
+        public int UnblockedDamage { get; set; }
     }
 }
 

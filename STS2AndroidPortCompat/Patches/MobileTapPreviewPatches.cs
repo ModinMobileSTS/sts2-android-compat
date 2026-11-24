@@ -252,6 +252,16 @@ public static class MobileTapPreviewPatches
 
     public static void ResetForInputModeChange()
     {
+        ResetPreview(restorePointerHover: true);
+    }
+
+    public static void ResetForFocusLoss()
+    {
+        ResetPreview(restorePointerHover: false);
+    }
+
+    private static void ResetPreview(bool restorePointerHover)
+    {
         var holders = new List<NCardHolder>();
         foreach (var entry in PinnedHolders)
             holders.Add(entry.Key);
@@ -277,6 +287,16 @@ public static class MobileTapPreviewPatches
                 continue;
             try
             {
+                if (!restorePointerHover)
+                {
+                    // A paused/unfocused window has no trustworthy pointer position.
+                    // Touch emulation leaves the last position over the old card;
+                    // restoring hover here would re-enable its effects after unpinning.
+                    holder.ReleaseFocus();
+                    holder.Hitbox?.ReleaseFocus();
+                    ForceHolderUnfocused(holder);
+                    continue;
+                }
                 var hitbox = holder.Hitbox;
                 var hovered = holder.Visible && hitbox != null && hitbox.IsInsideTree()
                     && hitbox.GetGlobalRect().HasPoint(holder.GetViewport().GetMousePosition());

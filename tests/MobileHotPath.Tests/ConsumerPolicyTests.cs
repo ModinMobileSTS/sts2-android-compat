@@ -25,6 +25,7 @@ internal static class ConsumerPolicyTests
         SetTouchControls(true);
         ConfirmationOnExistingScreens();
         PreviewPointerOwnershipAndReset();
+        PreviewFocusLossDoesNotRestoreStaleHover();
         RejectedPreviewPlayZoneTap();
         RejectedPreviewRetap();
         RewardConfirmationAndReset();
@@ -170,6 +171,43 @@ internal static class ConsumerPolicyTests
         Require(!MobileTapPreviewPatches.IsPinned(holder) && holder.IsHovered && holder.IsFocused,
             "preview setting hot-disable clears pin and restores ordinary hover");
         AndroidSettingsBridge.TouchPreviewEnabled = true;
+    }
+
+    private static void PreviewFocusLossDoesNotRestoreStaleHover()
+    {
+        var hand = NewHand(out var holder);
+        hand.OnHolderPressed(holder);
+        holder.TryGrabFocus();
+        holder.Hitbox.TryGrabFocus();
+        var effects = holder.HoverEffects;
+        // The last emulated mouse coordinate remains over this card after focus loss.
+        Viewport.Shared.MousePosition = Vector2.Zero;
+        MobileTapPreviewPatches.ResetForFocusLoss();
+        Require(!MobileTapPreviewPatches.IsPinned(holder) && hand.FocusedHolder == null
+            && !holder.IsHovered && !holder.IsFocused && !holder.HasFocus && !holder.Hitbox.HasFocus,
+            "focus loss clears the preview without restoring hover from the last touch coordinate");
+        Require(holder.HoverEffects > effects, "focus loss runs the original hover-off effects");
+        effects = holder.HoverEffects;
+        MobileTapPreviewPatches.ResetForFocusLoss();
+        Require(holder.HoverEffects == effects, "repeated lifecycle cleanup cannot re-enable or replay hover effects");
+        NGame.Instance._Input(new InputEventScreenTouch { Pressed = false });
+        NGame.Instance._Input(new InputEventScreenDrag { Position = new Vector2(0, -80) });
+        Require(hand.CardPlays == 0 && holder.CardModel.ManualPlays == 0 && !holder.IsFocused,
+            "late release/drag after focus loss cannot revive or play the old preview");
+        hand.OnHolderPressed(holder);
+        Require(MobileTapPreviewPatches.IsPinned(holder) && holder.IsFocused,
+            "a fresh card selection still enables preview after returning");
+
+        // A card just put down is tracked as suppressed rather than pinned.
+        hand.OnHolderPressed(holder);
+        NGame.Instance._Input(new InputEventScreenTouch { Pressed = false });
+        holder.SetMouseHovered(true);
+        MobileTapPreviewPatches.ResetForFocusLoss();
+        Require(!holder.IsHovered && !holder.IsFocused && hand.FocusedHolder == null,
+            "focus loss must not restore stale hover on a previously suppressed card either");
+        hand.InCardPlay = true;
+        MobileTapPreviewPatches.ResetForFocusLoss();
+        Require(hand.InCardPlay, "lifecycle preview cleanup never cancels an already-started card play");
     }
 
     private static void RejectedPreviewPlayZoneTap()

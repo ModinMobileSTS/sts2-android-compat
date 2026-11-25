@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "target_id": "v0.114.0",
+  "status": "active",
+  "display_name": "STS2 v0.114.0",
+  "versions": [
+    "v0.114.0"
+  ],
+  "reference_flavor": "original-v0.114.0",
+  "channel": "beta",
+  "source": "original_pc_reference_v0.114.0",
+  "steam_branch": "public-beta",
+  "sts2_dll_sha256": "ddceb87905b6096deb7be975922e24a53992453675df26df545b1c46b1826c5d",
+  "compile_constants": [
+    "STS2_TARGET_1130"
+  ],
+  "notes": [
+    "Built against the original v0.114.0 Windows release (Steam build 26909018). The payload identifies this build as v0.114.0, not v0.113.2.",
+    "Reuses the v0.113 Android patch paths, including the original atlas-aware blur. The payload still owns hotkey routing, relic voting rounds, and the LAN handshake and messages."
+  ]
+}

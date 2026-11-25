@@ -284,13 +284,19 @@ export STS2_ORIGINAL_V1110_REFERENCE_DIR=/path/to/original-v0.111.0/bin/Debug
 # Shared v0.113.x public-beta target; retain the V1130 name and use the latest v0.113.1 gate.
 export STS2_ORIGINAL_V1130_REFERENCE_DIR=/path/to/original-v0.113.1/data_sts2_windows_x86_64
 ./tools/build-compat-matrix.sh --target v0.113.0
+
+# Current v0.114.0 public-beta target, using the same patch paths but its own reference.
+export STS2_ORIGINAL_V1140_REFERENCE_DIR=/path/to/original-v0.114.0/data_sts2_windows_x86_64
+./tools/build-compat-matrix.sh --target v0.114.0
 ```
 
-The full family uses `compat_version=0.7.2-dev` and contains 10 active metadata targets. The new `v0.111.1` target declares `versions=["v0.111.1"]`, `channel=stable`, `steam_branch=public`, `source=original_pc_reference_v0.111.1`, and original `sts2.dll` SHA-256 `3fb1fa1bf0249087b706a5d0f062a60579e2f5b08df4ee477ddd6f2607f654d5`. The existing `v0.111.0` beta/`public-beta` record stays unchanged. Both targets reuse the existing v0.111.0 V1110 references, `reference_flavor=original-v0.111.0` and `compile_constants=["STS2_TARGET_1110"]`; no new flavor, V1111 environment variable or runtime branch is needed.
+The full family uses `compat_version=0.7.3-dev` and contains 11 active targets. The `v0.111.1` target declares `versions=["v0.111.1"]`, `channel=stable`, `steam_branch=public`, `source=original_pc_reference_v0.111.1`, and original `sts2.dll` SHA-256 `3fb1fa1bf0249087b706a5d0f062a60579e2f5b08df4ee477ddd6f2607f654d5`. The existing `v0.111.0` beta/`public-beta` record stays unchanged. Both targets reuse the existing v0.111.0 V1110 references, `reference_flavor=original-v0.111.0` and `compile_constants=["STS2_TARGET_1110"]`; no new flavor, V1111 environment variable or runtime branch is needed.
 
 The v0.111.0/v0.111.1 managed API, runtime IL and dependencies are equivalent; build identities, release metadata and one patch-notes PCK resource differ. Separate metadata is still required: Workshop `auto` prefers a recorded Steam payload branch, then falls back to the selected target's `steam_branch` when an archive import has no such source. Keeping v0.111.1/`public` separate avoids incorrectly falling back to v0.111.0's `public-beta`. Desktop audit and native/headless ModelDb initialization do not certify Android UI/gameplay, ordinary MODs or LAN, nor establish v0.111.0/v0.111.1 cross-version LAN support. Each target continues using its actual payload's original handshake and message tables.
 
 The stable `v0.113.0` target id displays as `STS2 v0.113.x` and supports both v0.113.0 and v0.113.1 by version and exact DLL SHA. v0.113.1 changes gameplay, saves and tooltip APIs, but retains the contracts used by this variant and the same scene/material/shader entries. Shared Android compatibility does not imply ordinary MOD API equivalence or cross-version LAN support.
+
+Steam `public-beta` build `26909018` identifies itself as **v0.114.0**, not v0.113.2. It has a separate target and `original-v0.114.0` compile gate in the same family pack; the v0.113.x target is unchanged. It reuses `STS2_TARGET_1130` without additional patches: the original game still handles hotkey ownership, relic voting rounds, and LAN handshake/messages. Use a v0.114.0 payload and version-matched mods.
 
 `tools/build-compat-pack.sh` is the legacy schema-1 path; use it only when also providing a matching `COMPAT_MANIFEST`.
 

@@ -185,7 +185,7 @@ public static class MobileInputPolicyPatches
     {
         Policy.Reset();
         _finishQueued = false;
-        ResetConsumers();
+        ResetConsumers(restorePointerHover: false);
     }
 
     private static void ApplyTransition(bool wasTouch)
@@ -196,10 +196,13 @@ public static class MobileInputPolicyPatches
         PatchHelper.Log(Policy.UseTouchControls ? "Input policy: touch." : "Input policy: keyboard-mouse.");
     }
 
-    private static void ResetConsumers()
+    private static void ResetConsumers(bool restorePointerHover = true)
     {
         TouchInputPatches.ResetForInputModeChange();
-        MobileTapPreviewPatches.ResetForInputModeChange();
+        if (restorePointerHover)
+            MobileTapPreviewPatches.ResetForInputModeChange();
+        else
+            MobileTapPreviewPatches.ResetForFocusLoss();
         MobileSelectionConfirmationPatches.ResetForInputModeChange();
         MerchantSelectionConfirmationPatches.ResetForInputModeChange();
         MobileTooltipPatches.ResetForInputModeChange();

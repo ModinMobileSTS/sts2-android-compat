@@ -11,7 +11,7 @@ if [[ -f "$ROOT/../tools/env/load-local-config.sh" ]]; then
   # shellcheck disable=SC1091
   source "$REPO_ROOT/tools/env/load-local-config.sh"
   sts2_init_env
-elif [[ -f "$ROOT/.env" ]]; then
+elif [[ "${STS2_DOTENV_LOADED:-0}" != "1" && -f "$ROOT/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
   source "$ROOT/.env"
@@ -26,23 +26,30 @@ OUT_ROOT="${COMPAT_MATRIX_OUT_ROOT:-$ROOT/dist/compat-matrix}"
 PACK_ID="${COMPAT_MATRIX_PACK_ID:-sts2-android-compat}"
 DISPLAY_NAME="${COMPAT_MATRIX_DISPLAY_NAME:-STS2 Android Compatibility}"
 COMPAT_VERSION="${COMPAT_MATRIX_VERSION:-0.7.3-dev}"
+COMPAT_REVISION="${COMPAT_MATRIX_REVISION:-}"
+MIN_LAUNCHER_VERSION_CODE="${COMPAT_MIN_LAUNCHER_VERSION_CODE:-115}"
+MIN_LAUNCHER_VERSION_NAME="${COMPAT_MIN_LAUNCHER_VERSION_NAME:-}"
 CHANNEL="${COMPAT_MATRIX_CHANNEL:-mixed}"
 TARGET_FILTER=""
 INCLUDE_ARCHIVED="${BUILD_ARCHIVED_TARGETS:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --target)
-      TARGET_FILTER="${2:-}"
+    --target|--out|--version|--revision|--min-launcher-version-code|--min-launcher-version-name)
+      [[ $# -ge 2 ]] || { echo "Missing argument for $1" >&2; exit 2; }
+      case "$1" in
+        --target) TARGET_FILTER="$2" ;;
+        --out) OUT_ROOT="${2:?--out must not be empty}" ;;
+        --version) COMPAT_VERSION="${2:?--version must not be empty}" ;;
+        --revision) COMPAT_REVISION="${2:?--revision must not be empty}" ;;
+        --min-launcher-version-code) MIN_LAUNCHER_VERSION_CODE="$2" ;;
+        --min-launcher-version-name) MIN_LAUNCHER_VERSION_NAME="$2" ;;
+      esac
       shift 2
       ;;
     --include-archived)
       INCLUDE_ARCHIVED=1
       shift
-      ;;
-    --out)
-      OUT_ROOT="${2:-}"
-      shift 2
       ;;
     *)
       echo "Unknown argument: $1" >&2
@@ -50,6 +57,20 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# The bundled stage has no release arguments. Keep its revision in sync with
+# the default family version; custom versions may provide a release sequence.
+if [[ -z "$COMPAT_REVISION" && "$COMPAT_VERSION" == 0.7.3-dev ]]; then
+  COMPAT_REVISION=703
+fi
+python3 - "$COMPAT_REVISION" "$MIN_LAUNCHER_VERSION_CODE" <<'PY'
+import re, sys
+for label, value in zip(("compat revision", "minimum launcher version code"), sys.argv[1:]):
+    if label == "compat revision" and not value:
+        continue
+    if not re.fullmatch(r"[1-9][0-9]{0,9}", value) or int(value) > 2_147_483_647:
+        sys.exit(f"Invalid {label}: expected a positive 32-bit integer, got {value!r}")
+PY
 
 if [[ "$DOTNET_BIN" != "dotnet" && ! -x "$DOTNET_BIN" ]]; then
   echo "Missing dotnet: $DOTNET_BIN" >&2
@@ -258,15 +279,19 @@ if [[ ! -s "$TARGETS_JSONL" ]]; then
   exit 1
 fi
 
-python3 - "$OUT_ROOT/$PACK_ID/compat_manifest.json" "$TARGETS_JSONL" "$PACK_ID" "$DISPLAY_NAME" "$COMPAT_VERSION" "$CHANNEL" "$GIT_BRANCH" "$GIT_COMMIT" "$GIT_SUBJECT" "$GIT_DIRTY" "$BUILD_TIMESTAMP_UTC" <<'PY'
+python3 - "$OUT_ROOT/$PACK_ID/compat_manifest.json" "$TARGETS_JSONL" "$PACK_ID" "$DISPLAY_NAME" "$COMPAT_VERSION" "$CHANNEL" "$GIT_BRANCH" "$GIT_COMMIT" "$GIT_SUBJECT" "$GIT_DIRTY" "$BUILD_TIMESTAMP_UTC" "$COMPAT_REVISION" "$MIN_LAUNCHER_VERSION_CODE" "$MIN_LAUNCHER_VERSION_NAME" <<'PY'
 import json, sys
-manifest_path, targets_path, pack_id, display_name, compat_version, channel, branch, commit, subject, dirty, built_at = sys.argv[1:]
+(manifest_path, targets_path, pack_id, display_name, compat_version, channel, branch,
+ commit, subject, dirty, built_at, revision, min_launcher_code, min_launcher_name) = sys.argv[1:]
 targets = [json.loads(line) for line in open(targets_path, encoding="utf-8") if line.strip()]
 data = {
     "schema": 2,
     "pack_id": pack_id,
     "display_name": display_name,
     "compat_version": compat_version,
+    **({"compat_revision": int(revision)} if revision else {}),
+    "min_launcher_version_code": int(min_launcher_code),
+    **({"min_launcher_version_name": min_launcher_name} if min_launcher_name else {}),
     "channel": channel,
     "targets": targets,
     "runtime": {
@@ -297,7 +322,7 @@ PY
 
 (
   cd "$OUT_ROOT/$PACK_ID"
-  find compat_manifest.json variants -type f -print | sort | xargs sha256sum > SHA256SUMS
+  find compat_manifest.json variants -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
 )
 (
   cd "$OUT_ROOT"

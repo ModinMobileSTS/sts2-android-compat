@@ -7,6 +7,12 @@ out/
 *.zip
 *.nupkg
 
+# Local configuration and signing-key accident protection (keys must still be outside Git).
+.env
+local.properties
+compat-release-ed25519*.pem
+__pycache__/
+
 # Optional local compile-gate reference DLLs/symlinks. Configure paths via
 # parent .env / local.properties instead of committing workspace symlinks.
 refs/**/*.dll
